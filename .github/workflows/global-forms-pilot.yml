@@ -1,0 +1,112 @@
+name: Global Forms Pilot (URL Files)
+
+on:
+  workflow_dispatch:
+    inputs:
+      url_brand:
+        description: "Бренд для прогона (или all)"
+        required: true
+        default: "mts"
+        type: choice
+        options:
+          - mts
+          - beeline
+          - megafon
+          - t2
+          - rostelecom
+          - domru
+          - ttk
+          - all
+      service_mode:
+        description: "Режим submit"
+        required: true
+        default: "core"
+        type: choice
+        options:
+          - core
+          - variants
+          - all
+      run_chromium:
+        description: "Запустить Chromium"
+        required: true
+        default: true
+        type: boolean
+      run_firefox:
+        description: "Запустить Firefox"
+        required: true
+        default: false
+        type: boolean
+      run_webkit:
+        description: "Запустить WebKit"
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  pilot:
+    name: URL Pilot • ${{ matrix.brand }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        brand: ${{ fromJson(inputs.url_brand == 'all' && '["mts","beeline","megafon","t2","rostelecom","domru","ttk"]' || format('["{0}"]', inputs.url_brand)) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright browsers
+        run: |
+          sudo apt-get update
+          python -m playwright install --with-deps chromium firefox webkit
+
+      - name: Run URL brand in Chromium
+        if: ${{ inputs.run_chromium }}
+        run: |
+          python -m pytest test_universal2.py \
+            --url-brand=${{ matrix.brand }} \
+            --service-mode=${{ inputs.service_mode }} \
+            --browser=chromium \
+            --execution-profile=desktop \
+            --blocking-profile=none \
+            --alluredir=allure-results
+
+      - name: Run URL brand in Firefox
+        if: ${{ inputs.run_firefox }}
+        run: |
+          python -m pytest test_universal2.py \
+            --url-brand=${{ matrix.brand }} \
+            --service-mode=${{ inputs.service_mode }} \
+            --browser=firefox \
+            --execution-profile=desktop \
+            --blocking-profile=none \
+            --alluredir=allure-results
+
+      - name: Run URL brand in WebKit
+        if: ${{ inputs.run_webkit }}
+        run: |
+          python -m pytest test_universal2.py \
+            --url-brand=${{ matrix.brand }} \
+            --service-mode=${{ inputs.service_mode }} \
+            --browser=webkit \
+            --execution-profile=desktop \
+            --blocking-profile=none \
+            --alluredir=allure-results
+
+      - name: Upload Allure results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results-${{ matrix.brand }}
+          path: allure-results
+          if-no-files-found: ignore

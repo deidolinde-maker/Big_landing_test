@@ -1,0 +1,10 @@
+# Base pages
+https://rtk-ru.online/
+https://rt-internet.online/
+https://rtk-home-internet.ru/
+https://rtk-internet.online/
+http://rtk-home.ru/
+
+# Business child pages (required by task)
+https://rtk-ru.online/business/internet-dlya-biznesa
+https://rtk-ru.online/business/virtualnaya-ats

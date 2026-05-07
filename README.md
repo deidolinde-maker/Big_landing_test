@@ -1,0 +1,569 @@
+﻿# Everyday_test
+
+Актуальная документация для ветки `master` репозитория:
+`https://github.com/deidolinde-maker/Everyday_test.git`.
+
+Проект состоит из двух независимых наборов UI-автотестов:
+1. Проверка форм заявок на лендингах провайдеров (корень репозитория, `test_universal2.py`).
+2. Проверка блока мобильных тарифов (`mobile_tariffs_tests/`).
+
+## 1. Структура репозитория
+
+- `test_universal2.py` - основной e2e-тест форм (главная, popups, `/business`, городские сценарии).
+- `conftest.py` - параметры `--provider`, `--site`, `--service-mode`, `--blocking-profile`, вложения в Allure при падении.
+- `config/providers/*.py` - провайдерные конфиги сайтов для Suite A.
+- `config/loader.py` - объединение провайдерных конфигов в runtime-формат для теста.
+- `config/schema.py` - валидация схемы конфигов и защита от дублей доменов.
+- `notify_from_allure.py` - итоговый summary по `allure-results` для Telegram.
+- `mobile_tariffs_tests/tests/test_mobile_tariffs.py` - тест блока мобильных тарифов.
+- `mobile_tariffs_tests/config/landing_data.py` - список лендингов mobile suite.
+- `mobile_tariffs_tests/conftest.py` - фикстуры и параметризация по `LANDINGS`.
+- `mobile_tariffs_tests/utils/helpers.py` - шаговые алерты/утилиты mobile suite.
+- `mobile_tariffs_tests/notify_from_allure_mobile.py` - итоговый mobile summary в Telegram.
+- `.github/workflows/allure.yml` - legacy/fallback CI формы (ручной запуск).
+- `.github/workflows/provider-mts.yml` - ручной провайдерный прогон MTS (desktop + mobile toggles).
+- `.github/workflows/provider-beeline.yml` - ручной провайдерный прогон Beeline (desktop + mobile toggles).
+- `.github/workflows/provider-megafon.yml` - ручной провайдерный прогон Megafon (desktop + mobile toggles).
+- `.github/workflows/provider-t2.yml` - ручной провайдерный прогон T2 (desktop + mobile toggles).
+- `.github/workflows/provider-rostelecom.yml` - ручной провайдерный прогон Rostelecom (desktop + mobile toggles).
+- `.github/workflows/provider-domru.yml` - ручной провайдерный прогон Domru (desktop + mobile toggles).
+- `.github/workflows/provider-orchestrator.yml` - последовательный оркестратор прогонов по провайдерам (MTS -> Beeline -> Megafon -> T2 -> Rostelecom -> Domru).
+- `.github/workflows/provider-mobile-orchestrator.yml` - оркестратор mobile прогонов (smoke/all, chromium/webkit, core/variants).
+- `.github/workflows/mobile-tariffs.yml` - CI mobile suite.
+
+Примечание по Telegram для оркестратора:
+- в `provider-orchestrator.yml` по умолчанию отключены `provider_alert_summary` и `provider_alert_recovered`, чтобы успешные провайдерные шаги не создавали лишний шум;
+- при этом провайдерные ошибки (`alert_errors` / `alert_aggregates`) остаются включаемыми;
+- итоговый единый summary отправляется отдельным `final_summary` job оркестратора.
+
+## 2. Suite A: Формы заявок (`test_universal2.py`)
+
+### 2.1 Что проверяет тест
+
+Скрипт проверяет, что формы заявок на каждом сайте открываются, корректно заполняются и дают подтверждение отправки (URL содержит `/tilda/form1/submitted` или `/thanks`).
+
+### 2.2 Пошаговый сценарий `run_site_scenario`
+
+Для каждого сайта из провайдерных конфигов (`config/providers/*.py`):
+
+1. Шаг 1 - `checkaddress` (если `has_checkaddress=True`):
+   - переход на `base_url`,
+   - поиск формы `checkaddress`,
+   - заполнение улицы/дома/телефона (и имени, если требуется),
+   - submit с подтверждением.
+2. Шаг 2 - popups на главной:
+   - сбор всех целевых кнопок,
+   - последовательный цикл по каждой кнопке: открыть popup -> заполнить -> submit -> проверить подтверждение.
+3. Шаг 3 - popups `/business` (если `has_business=True`):
+   - аналогично шагу 2, но на `base_url + /business`.
+4. Шаг 4 - выбор города (если `city_name` задан):
+   - открыть селектор города,
+   - найти нужный город в списке,
+   - кликнуть и дождаться смены URL.
+5. Шаг 4a - popups главной городского URL (если шаг 4 успешен).
+6. Шаг 4b - popups `/business` городского URL (если `has_business=True` и шаг 4 успешен).
+
+Если шаг неприменим по флагам, он помечается как `неприменим` и не считается ошибкой.
+
+### 2.3 Логика навигации и защита от "упавшего" сайта
+
+Используется `safe_goto(...)`:
+
+- `NAV_RETRIES = 3` попытки.
+- `NAV_GOTO_TIMEOUT_MS = 20_000` на каждую попытку.
+- Критический инцидент (`critical`) только если:
+  - сервер вернул `HTTP >= 400` (например, 400/403/500/502), или
+  - суммарное время навигации достигло `SITE_UNAVAILABLE_THRESHOLD_MS = 60_000`.
+- Если ошибка не критическая (например, кратковременный флак до 60с), шаг падает как обычный `failed`, но сайт не скипается целиком.
+- Если ошибка критическая, вызывается `skip_site_due_unavailability(...)`:
+  - отправляется `critical` алерт в Telegram,
+  - текущий сайт помечается `pytest.skip(...)`,
+  - прогон продолжается на следующем сайте.
+
+Важно: `critical` не шлется на типовые функциональные ошибки вроде "не нашли popup", "не выбрали город", "не заполнилось поле".
+
+### 2.4 Логика submit и подтверждения отправки
+
+Подтверждение проверяется через `submit_with_confirmation(...)` + `wait_for_success_url(...)`:
+
+- `SUBMIT_CONFIRM_TIMEOUT_MS = 25_000` (ожидание маркеров успеха).
+- Дополнительный `SUBMIT_CONFIRM_GRACE_MS = 2_000` после основного ожидания.
+- Если подтверждение не пришло, выполняется повторный submit (`attempts=2`).
+- Учитывается редкий кейс, когда success-URL открылся в новой вкладке.
+
+Это уменьшает ложные `no_confirmation` при медленных редиректах после submit.
+
+### 2.5 Усиление выбора города (region selector)
+
+`run_city_scenario(...)` использует набор fallback-локаторов и усиления:
+
+- выбор только видимых (`is_visible`) кандидатов для кнопки города;
+- до 3 попыток клика по кнопке города;
+- поиск поля ввода города по нескольким селекторам;
+- поиск ссылки города по нескольким селекторам + `has_text=city_name`;
+- до 3 попыток клика по найденному городу;
+- ожидание смены URL после клика.
+
+Если город не найден/не кликнулся/URL не сменился - это шаговая ошибка (`step alert`), но не `critical`.
+
+### 2.6 Ключевые конфиги Suite A
+
+- Провайдерные конфиги (`config/providers/*.py`):
+  - `PROVIDER` (имя провайдера),
+  - `DEFAULT_CITY`,
+  - `SITES` (список сайтов).
+- Поля сайта в `SITES`:
+  - обязательные: `base_url`, `has_checkaddress`, `has_business`,
+  - опциональные: `cities`, `city_name`, `has_name_field`, `has_region_popup`.
+- Runtime-слой (`config/loader.py`) строит совместимый `SITE_CONFIGS`:
+  - ключ: домен (`site_id`, используется в `--site`),
+  - добавляет `city_name` (из `cities[0]` или `DEFAULT_CITY`),
+  - добавляет служебное поле `_provider`.
+- `FORM_CONFIGS` - CSS-селекторы полей и submit по типам форм.
+- `POPUP_CONTAINER_SELECTORS`, `SUGGESTION_SELECTORS` - fallback-локаторы для нестабильной верстки.
+
+## 3. Telegram-алерты (Suite A)
+
+### 3.1 Step alert (`send_step_alert`)
+
+Шлется при падении шага (не критическая недоступность):
+
+```text
+❌ [<site_label>] Шаг <step_no>: <step_name> — failed
+Статус: failed
+Причина: <reason>
+URL: <page.url>
+Время: <HH:MM:SS>
+Run: <RUN_URL>    # если задан
+```
+
+### 3.2 Tech alert (`log_error`)
+
+Шлется по точечной технической ошибке внутри шага (`popup_not_found`, `no_confirmation` и т.д.):
+
+```text
+❌ Ошибка в тесте
+
+Сайт: <site_label>
+Ошибка: <error_msg>
+Причина: <reason>
+Детали: <extra>   # опционально
+URL: <page.url>
+Время: <HH:MM:SS>
+Run: <RUN_URL>    # если задан
+```
+
+### 3.3 Critical alert (`send_critical_alert`)
+
+Шлется только при подтвержденной недоступности сайта (HTTP 4xx/5xx или навигация >= 60с):
+
+```text
+[CRITICAL] [<site_label>] Шаг <step_no>: <step_name>
+Статус: critical
+Причина: <reason>
+URL: <page.url>
+Время: <HH:MM:SS>
+Run: <RUN_URL>    # если задан
+```
+
+## 4. Suite B: Мобильные тарифы (`mobile_tariffs_tests/`)
+
+### 4.1 Что проверяет тест
+
+`test_mobile_tariffs`:
+1. Открывает лендинг.
+2. Закрывает мешающие popups/региональные оверлеи (если есть).
+3. Принимает cookies.
+4. Переходит в раздел мобильных тарифов и проверяет текст навигации.
+5. Проверяет, что карточки загрузились.
+6. Кликает CTA на карточках (smoke по ограниченному числу карточек).
+7. Валидирует ожидаемый тип результата:
+   - `new_tab`,
+   - `same_tab`,
+   - `modal`,
+   - `either` / `any` (допускающие режимы).
+
+### 4.2 Конфиг лендингов
+
+`mobile_tariffs_tests/config/landing_data.py`:
+
+- `name`,
+- `url`,
+- `nav_selector`,
+- `nav_text`,
+- `card_button_selector`,
+- `expected_redirect_type`,
+- `comment`.
+
+## 5. CI/CD (GitHub Actions)
+
+### 5.1 Формы (legacy/fallback): `.github/workflows/allure.yml`
+
+Триггеры:
+- `workflow_dispatch` (входные параметры `site`, `run_place_variants`, `run_chromium`, `run_firefox`),
+- без cron-автозапуска.
+
+Что делает:
+1. Ставит Python и зависимости.
+2. Для ручного запуска позволяет включать/выключать `chromium` и `firefox` отдельными флагами.
+3. Ставит только выбранные браузеры Playwright.
+4. Запускает `core` в выбранных браузерах в clean-профиле (`--blocking-profile none`).
+5. Запускает `variants` только для выбранных браузеров (если включено `run_place_variants`).
+6. Для `core/variants` в workflow заданы step-timeout, чтобы не держать job в длительном залипании.
+7. Собирает `allure-results`.
+8. Генерирует Allure report и публикует в `gh-pages`.
+9. Формирует и отправляет агрегированный Telegram summary:
+   - 1–5 падений на лендинг: точечные алерты в summary;
+   - >5 падений на лендинг: агрегированный блок по лендингу;
+   - массовые падения на нескольких лендингах: сводный алерт;
+   - при восстановлении относительно прошлого прогона: блок `Исправлено после восстановления`.
+10. Публикует `notify_state.json` вместе с отчётом через отдельную директорию publish (обход `Permission denied` при записи в `allure-report`).
+
+### 5.2 Adblock: `.github/workflows/allure-adblock.yml`
+
+Триггеры:
+- только `workflow_dispatch` (входные параметры `site`, `run_place_variants`).
+
+Что делает:
+1. Выполняет отдельный прогон `firefox + --blocking-profile adblock-mvp` (core и опционально variants).
+2. Не влияет на основной ежедневный clean multi-browser pipeline.
+3. Публикует отчёт в `gh-pages/adblock`.
+
+### 5.3 Mobile: `.github/workflows/mobile-tariffs.yml`
+
+Триггеры:
+- `workflow_dispatch` (входной параметр `landing_filter`).
+
+Что делает:
+1. Ставит зависимости `mobile_tariffs_tests`.
+2. Запускает mobile-тесты (полный прогон или `pytest -k "<landing_filter>"`).
+3. Сохраняет `allure-results` и `allure-report` артефактами.
+4. Отправляет Telegram summary.
+5. Финально роняет job, если тесты упали.
+
+### 5.4 Автозапуск
+
+- В текущей конфигурации автозапуск legacy workflow отключён.
+- Основной запуск Suite A выполняется вручную через `provider-orchestrator.yml` (или точечно через `provider-<name>.yml`).
+- Legacy `allure.yml` и `mobile-tariffs.yml` запускаются только вручную (`workflow_dispatch`).
+
+### 5.5 Mobile orchestrator: `.github/workflows/provider-mobile-orchestrator.yml`
+
+Триггеры:
+- `workflow_dispatch` (входные параметры `provider_scope`, `site`, `run_chromium`, `run_webkit`, `run_place_variants`, `blocking_profile`).
+
+Что делает:
+1. Формирует matrix mobile-прогонов:
+   - `provider_scope=smoke` -> `domru`, `t2`;
+   - `provider_scope=all` -> `mts`, `beeline`, `megafon`, `t2`, `rostelecom`, `domru`.
+2. Запускает для каждой комбинации provider/browser:
+   - `core` (`--service-mode=core`);
+   - `variants` опционально (`run_place_variants=true`).
+3. По умолчанию работает в clean-контуре (`blocking_profile=none`), adblock остаётся опциональным.
+4. Собирает артефакты всех matrix-job и публикует единый отчёт:
+   - `gh-pages/provider-mobile-orchestrator/`.
+5. Поддерживает те же rollout guardrails:
+   - input `mobile_rollout_enabled`;
+   - repository variable `MOBILE_ROLLOUT_ENABLED`.
+
+Практический режим запуска:
+1. Стабилизация mobile `core`: `run_place_variants=false`, `blocking_profile=none`.
+2. Расширение матрицы (`P4-R8`): `run_place_variants=true`.
+3. Проверка adblock на mobile: `blocking_profile=adblock-mvp` (+ при необходимости `run_place_variants=true`).
+
+### 5.6 Mobile rollback и guardrails
+
+В `provider-mobile-orchestrator.yml` включён feature-gate:
+- input `mobile_rollout_enabled` (уровень одного запуска workflow),
+- repository variable `MOBILE_ROLLOUT_ENABLED` (глобальный gate).
+
+Быстрый rollback без изменения desktop:
+1. Global stop:
+   - GitHub -> `Settings` -> `Secrets and variables` -> `Actions` -> `Variables`.
+   - Установить `MOBILE_ROLLOUT_ENABLED=false`.
+   - После этого mobile orchestrator будет переходить в `mobile_rollout_disabled` job и пропускать матричный тестовый job.
+2. Точечный stop для одного запуска:
+   - при `Run workflow` выставить `mobile_rollout_enabled=false`.
+3. Возврат к normal mode:
+   - вернуть `MOBILE_ROLLOUT_ENABLED=true` (или удалить переменную),
+   - запускать workflow с `mobile_rollout_enabled=true`.
+
+### 5.7 Jenkins migration baseline
+
+В репозиторий добавлены артефакты для переноса в Jenkins:
+- `Jenkinsfile` - параметрический pipeline для provider run (desktop + mobile профили).
+- `JENKINS_MIGRATION_PLAN.md` - поэтапный план внедрения и критерии готовности.
+- `JENKINS_PHASE_A_CHECKLIST.md` - чеклист первого smoke запуска в Jenkins.
+
+Ключевые параметры Jenkins pipeline:
+- `PROVIDER_SCOPE`: `all|smoke|<provider>`
+- `SERVICE_MODE`: `core|variants|all`
+- браузерные флаги: desktop + mobile toggles
+- `BLOCKING_PROFILE`: `none|adblock-mvp`
+- `SITE`: точечный фильтр домена
+
+Кеш Playwright в Jenkins:
+- `PLAYWRIGHT_BROWSERS_PATH=/var/lib/jenkins/cache/ms-playwright`
+- браузеры ставятся только при отсутствии в кеше.
+
+### 5.8 Jenkins production setup (actual)
+
+Current behavior of `Jenkinsfile`:
+1. Python deps are reused from `.venv` and controlled by `.requirements.sha256` (no full reinstall on each run).
+2. Playwright browsers are reused from `/var/lib/jenkins/cache/ms-playwright`.
+3. Allure report is generated and published in Jenkins UI in `post { always { ... } }`.
+4. Final Telegram summary is built from `allure-results` by `notify_from_allure.py`.
+5. Telegram alerts support proxy-only mode in Jenkins (without mandatory `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`) when proxy credentials are configured.
+
+Required Jenkins credentials for proxy mode:
+- `telegram_proxy_url`
+- `telegram_proxy_auth_secret`
+- `tg_proxy_creds_survarius`
+
+Expected success log lines:
+- `[TELEGRAM][summary] Sent via proxy endpoint (status=200)`
+- Same pattern for `step` / `critical` alerts.
+
+Common errors:
+- `Bad Request: chat not found` -> proxy is reachable, but Telegram target/chat in creds is invalid or unavailable for bot.
+- `Skip send: ... bot/chat missing and proxy endpoint is not usable` -> no bot/chat creds and proxy creds are incomplete/invalid.
+## 6. Как добавить новый URL (подробно)
+
+### 6.1 Добавить сайт в Suite A (формы)
+
+1. Открыть файл нужного провайдера в `config/providers/` (или создать новый provider-модуль).
+2. Добавить сайт в список `SITES`:
+
+```python
+{
+    "base_url": "https://example-site.ru/",
+    "has_checkaddress": False,
+    "has_business": True,
+    "cities": ["Москва"],       # или "city_name": None
+    "has_name_field": False,    # опционально
+},
+```
+
+3. Правила по полям:
+   - `base_url` всегда с протоколом `https://`.
+   - `site_id` для `--site` берётся из домена `base_url` (если явно не задано поле `site_id`).
+   - если на сайте нет городского режима: `city_name=None`.
+   - если нет `/business`: `has_business=False`.
+4. Если у форм нестандартные классы:
+   - добавить/обновить селекторы в `FORM_CONFIGS`,
+   - при необходимости расширить fallback-селекторы.
+5. Прогнать локально точечно:
+   - `python -m pytest test_universal2.py -s --site=example-site.ru --alluredir=allure-results --timeout=600`
+6. Проверить в логах:
+   - успешные submit-подтверждения,
+   - отсутствие ложных `critical`,
+   - корректность шагов города/`/business`.
+
+### 6.2 Добавить URL в ручной запуск CI для Suite A
+
+Рекомендуемый путь:
+
+В GitHub Actions -> `Provider Orchestrator` -> `Run workflow`:
+
+1. Для полного прогона оставить `site` пустым.
+2. Для точечного прогона указать `site` (домен `site_id`, например, `example-site.ru`).
+
+Точечный провайдерный путь:
+
+В GitHub Actions -> `provider-<name>` -> `Run workflow`:
+
+1. В поле `site` указать домен-сайт (`site_id`, например, `example-site.ru`).
+2. Пустое поле `site` = прогон всех сайтов.
+
+Mobile-оркестрация (новый путь):
+
+В GitHub Actions -> `Provider Mobile Orchestrator` -> `Run workflow`:
+
+1. Для быстрых нестабильных проверок выбрать `provider_scope=smoke` (domru+t2).
+2. Для полного mobile-прохода выбрать `provider_scope=all`.
+3. Держать `blocking_profile=none` как дефолтный стабильный режим.
+4. Включать `run_place_variants=true` только когда нужен полный matrix по Place.
+
+Provider workflow (быстрый ручной путь):
+1. Открыть нужный `provider-<name>.yml`.
+2. Включить mobile-флаги:
+   - `run_mobile_chromium=true` и/или
+   - `run_mobile_webkit=true`.
+3. По необходимости оставить desktop-флаги выключенными, чтобы прогнать только mobile.
+4. Для полного mobile Place добавить `run_place_variants=true`.
+
+### 6.3 Добавить лендинг в Suite B (mobile)
+
+1. Открыть `mobile_tariffs_tests/config/landing_data.py`.
+2. Добавить объект в `LANDINGS`:
+
+```python
+{
+    "name": "Provider example-site.ru",
+    "url": "https://example-site.ru/",
+    "nav_selector": "...",
+    "nav_text": "Мобильная связь",
+    "card_button_selector": "...",
+    "expected_redirect_type": "either",
+    "comment": "Короткое пояснение по особенностям лендинга",
+},
+```
+
+3. Если в ТЗ URL без протокола - приводить к `https://...`.
+4. Прогнать точечно:
+   - `cd mobile_tariffs_tests`
+   - `python -m pytest -k "example-site.ru"`
+
+### 6.4 Добавить URL в ручной запуск CI для Suite B
+
+В GitHub Actions -> `Mobile Tariffs Tests` -> `Run workflow`:
+
+1. Поле `landing_filter` принимает выражение для `pytest -k`.
+2. Пример: `MTS mts-home.online`.
+3. Пустой `landing_filter` = полный прогон.
+
+## 7. Локальный запуск
+
+### 7.1 Suite A (формы)
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install requests pytest-timeout
+python -m playwright install chromium
+```
+
+Все сайты:
+
+```bash
+python -m pytest test_universal2.py -s --alluredir=allure-results --timeout=600 --browser chromium --blocking-profile none
+```
+
+Один сайт:
+
+```bash
+python -m pytest test_universal2.py -s --site=mts-home.online --alluredir=allure-results --timeout=600 --browser chromium --blocking-profile none
+```
+
+Один сайт в adblock MVP-режиме:
+
+```bash
+python -m playwright install firefox
+python -m pytest test_universal2.py -s --site=mts-home.online --alluredir=allure-results --timeout=600 --browser firefox --blocking-profile adblock-mvp
+```
+
+### 7.2 Suite B (mobile)
+
+```bash
+cd mobile_tariffs_tests
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m playwright install chromium
+python -m pytest
+```
+
+Точечный запуск:
+
+```bash
+python -m pytest -k "MTS mts-home.online"
+```
+
+### 7.3 Suite A в mobile execution profile
+
+Core (provider full):
+
+```bash
+python -m pytest test_universal2.py -s --alluredir=allure-results-core-mobile-chromium --timeout=600 --service-mode=core --browser=chromium --execution-profile=mobile-chromium --blocking-profile=none --provider=domru
+python -m pytest test_universal2.py -s --alluredir=allure-results-core-mobile-webkit --timeout=600 --service-mode=core --browser=webkit --execution-profile=mobile-webkit --blocking-profile=none --provider=domru
+```
+
+Variants (provider full):
+
+```bash
+python -m pytest test_universal2.py -s --alluredir=allure-results-variants-mobile-chromium --timeout=600 --service-mode=variants --browser=chromium --execution-profile=mobile-chromium --blocking-profile=none --provider=domru
+python -m pytest test_universal2.py -s --alluredir=allure-results-variants-mobile-webkit --timeout=600 --service-mode=variants --browser=webkit --execution-profile=mobile-webkit --blocking-profile=none --provider=domru
+```
+
+Adblock MVP (mobile):
+
+```bash
+python -m pytest test_universal2.py -s --alluredir=allure-results-core-mobile-chromium-adblock --timeout=600 --service-mode=core --browser=chromium --execution-profile=mobile-chromium --blocking-profile=adblock-mvp --provider=domru
+python -m pytest test_universal2.py -s --alluredir=allure-results-core-mobile-webkit-adblock --timeout=600 --service-mode=core --browser=webkit --execution-profile=mobile-webkit --blocking-profile=adblock-mvp --provider=domru
+```
+
+Актуальный статус mobile rollout (на 2026-05-04):
+- `domru`: core mobile chromium/webkit - green.
+- `t2`: core mobile chromium/webkit - green.
+- `domru`: variants mobile chromium - green.
+- `t2`: variants mobile chromium/webkit - green.
+- региональный выбор в mobile для `dom-provider.online`/`providerdom.ru` стабилизирован через открытие burger-меню и mobile city selector.
+
+## 8. Переменные окружения
+
+Основные переменные:
+
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
+- `RUN_URL`
+- `ALLURE_RESULTS_DIR`
+- `ALLURE_URL`
+- `SITE_HINT` (только для suite форм)
+- `NOTIFY_STATE_FILE` (опционально, файл состояния для агрегированных/восстановленных алертов)
+
+
+For Jenkins proxy-only mode, `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` may be omitted if `TELEGRAM_PROXY_URL` + `TELEGRAM_PROXY_AUTH_SECRET` + `TELEGRAM_PROXY_CREDS` are configured.
+
+## 9. Быстрый разбор падения
+
+1. Найти шаг падения (`Шаг 1/2/3/4/4a/4b`) в логах pytest.
+2. Проверить тип ошибки:
+   - `step/tech` (функциональный сбой),
+   - `critical` (подтвержденная недоступность сайта).
+3. Сверить URL до/после действия и статус submit-подтверждения.
+4. Проверить Allure-вложения (скриншоты, текстовые attach шага/critical).
+
+## 10. Как тестировался скрипт
+
+### 10.1 Основной suite (формы, `test_universal2.py`)
+
+1. Прогоны в терминале через видимый браузер (`--headed`) на отдельных доменах и на полном списке.
+2. Сравнение факта отправки заявок в реальном времени в Advizer с действиями теста и URL подтверждения.
+3. Отдельные прогоны в условиях недоступности части сайтов (timeouts/ошибки ответа) для проверки:
+   - корректного срабатывания `critical` только при `HTTP >= 400` или навигации `>= 60с`,
+   - пропуска недоступного сайта через `pytest.skip(...)`,
+   - продолжения прогона по остальным сайтам.
+4. Проверка ложноположительных сбоев submit:
+   - редирект на thanks/submitted с задержкой,
+   - подтверждение после grace-периода,
+   - повторная попытка submit при `no_confirmation`.
+5. Проверка устойчивости выбора города:
+   - разные варианты кнопки открытия селектора,
+   - случаи с медленной отрисовкой списка,
+   - повторные попытки клика по кнопке города и по ссылке города.
+
+### 10.2 Mobile suite (`mobile_tariffs_tests`)
+
+1. Негативный сценарий: страница без блока мобильных тарифов (валидация понятной ошибки шага).
+2. Негативный сценарий: блок мобильных тарифов есть, но карточек нет.
+3. Фактический боевой прогон по рабочим лендингам из `LANDINGS`.
+4. Проверка типов переходов CTA:
+   - `new_tab`,
+   - `same_tab`,
+   - `modal`,
+   - `either`/`any` для смешанных кейсов.
+
+### 10.3 Инженерные проверки качества изменений
+
+1. Code review diff перед пушем:
+   - нет ли регрессий в существующих ветках сценария,
+   - не задеты ли условия, которые должны оставаться некритичными.
+2. Проверка консольных логов на каждом шаге:
+   - понятность причины падения,
+   - совпадение шага в логе, в алерте и в Allure.
+3. Проверка Telegram-алертов:
+   - `step/tech/critical` не смешиваются,
+   - critical уходит только на подтвержденную недоступность сайта.
+4. Проверка совместимости с CI:
+   - локальный прогон по одному сайту (`--site`) и полный прогон,
+   - соответствие README фактическим значениям таймаутов/ретраев из кода.
+

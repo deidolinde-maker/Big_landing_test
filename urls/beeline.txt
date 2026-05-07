@@ -1,0 +1,11 @@
+# Base pages
+https://beeline-internet.online/
+https://beeline-ru.online/
+https://online-beeline.ru/
+https://beeline-ru.pro/
+https://beeline-home.online/
+https://beelline-internet.ru/
+
+# Business child pages (required by task)
+https://beeline-ru.online/business/zashchita-ot-ddos-atak
+https://beeline-ru.online/business/bilajn-prodvizhenie

@@ -1,0 +1,197 @@
+name: Playwright Tests (Adblock Profile)
+
+on:
+  workflow_dispatch:
+    inputs:
+      site:
+        description: 'Домен сайта (оставьте пустым для всех)'
+        required: false
+        default: ''
+      run_place_variants:
+        description: 'Запускать прогон Place-вариантов в adblock-профиле'
+        required: false
+        default: false
+        type: boolean
+      alert_errors:
+        description: 'Telegram: одиночные ошибки (1–5 на лендинг)'
+        required: false
+        default: true
+        type: boolean
+      alert_aggregates:
+        description: 'Telegram: накопительные/массовые ошибки'
+        required: false
+        default: true
+        type: boolean
+      alert_summary:
+        description: 'Telegram: итог прогона'
+        required: false
+        default: true
+        type: boolean
+      alert_recovered:
+        description: 'Telegram: блок восстановлений (исправлено)'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  test_adblock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      ALERT_ERRORS_ENABLED: ${{ github.event.inputs.alert_errors == 'true' }}
+      ALERT_AGGREGATES_ENABLED: ${{ github.event.inputs.alert_aggregates == 'true' }}
+      ALERT_SUMMARY_ENABLED: ${{ github.event.inputs.alert_summary == 'true' }}
+      ALERT_RECOVERED_ENABLED: ${{ github.event.inputs.alert_recovered == 'true' }}
+
+    steps:
+      - name: Checkout репозитория
+        uses: actions/checkout@v4
+
+      - name: Установка Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Установка Python-зависимостей
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest playwright pytest-playwright allure-pytest pytest-timeout requests
+          python -m pip show playwright
+
+      - name: Установка Firefox для adblock-профиля
+        run: |
+          set -e
+          python -m playwright install firefox
+          python -m playwright install-deps firefox
+
+      - name: Проверка импорта playwright
+        run: python -c "from playwright.sync_api import Page; print('playwright OK')"
+
+      - name: Запуск тестов Core (firefox + adblock-mvp)
+        id: run_tests_core_adblock
+        timeout-minutes: 90
+        run: |
+          set -e
+          PYTEST_ARGS=(
+            test_universal2.py
+            --alluredir=allure-results-core-adblock
+            --timeout=600
+            -s
+            --service-mode=core
+            --browser=firefox
+            --blocking-profile=adblock-mvp
+          )
+          if [ -n "${SITE_INPUT}" ]; then
+            PYTEST_ARGS+=(--site="${SITE_INPUT}")
+          fi
+          echo "Running CORE (adblock profile): firefox + adblock-mvp"
+          echo "Pytest args: ${PYTEST_ARGS[*]}"
+          python -m pytest "${PYTEST_ARGS[@]}"
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SITE_INPUT: ${{ github.event.inputs.site }}
+        continue-on-error: true
+
+      - name: Запуск тестов Place Variants (firefox + adblock-mvp)
+        id: run_tests_variants_adblock
+        if: ${{ always() && github.event.inputs.run_place_variants == 'true' }}
+        timeout-minutes: 90
+        run: |
+          set -e
+          PYTEST_ARGS=(
+            test_universal2.py
+            --alluredir=allure-results-variants-adblock
+            --timeout=600
+            -s
+            --service-mode=variants
+            --browser=firefox
+            --blocking-profile=adblock-mvp
+          )
+          if [ -n "${SITE_INPUT}" ]; then
+            PYTEST_ARGS+=(--site="${SITE_INPUT}")
+          fi
+          echo "Running VARIANTS (adblock profile): firefox + adblock-mvp"
+          echo "Pytest args: ${PYTEST_ARGS[*]}"
+          python -m pytest "${PYTEST_ARGS[@]}"
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SITE_INPUT: ${{ github.event.inputs.site }}
+        continue-on-error: true
+
+      - name: Объединить результаты Allure
+        if: always()
+        run: |
+          mkdir -p allure-results
+          if [ -d allure-results-core-adblock ]; then
+            cp -R allure-results-core-adblock/. allure-results/
+          fi
+          if [ -d allure-results-variants-adblock ]; then
+            cp -R allure-results-variants-adblock/. allure-results/
+          fi
+
+      - name: Сохранить результаты Allure
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: allure-results-adblock
+          path: allure-results/
+          retention-days: 30
+
+      - name: Генерация Allure отчёта
+        uses: simple-elf/allure-report-action@master
+        if: always()
+        with:
+          allure_results: allure-results
+          allure_report: allure-report
+          allure_history: allure-history
+
+      - name: Собрать сообщение для Telegram из Allure
+        if: always()
+        run: python notify_from_allure.py
+        env:
+          ALLURE_RESULTS_DIR: allure-results
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ALLURE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/adblock/
+          SITE_HINT: ${{ github.event.inputs.site }}
+          NOTIFY_STATE_FILE: notify_state.json
+          NOTIFY_STATE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/adblock/notify_state.json
+          ALERT_ERRORS_ENABLED: ${{ env.ALERT_ERRORS_ENABLED }}
+          ALERT_AGGREGATES_ENABLED: ${{ env.ALERT_AGGREGATES_ENABLED }}
+          ALERT_SUMMARY_ENABLED: ${{ env.ALERT_SUMMARY_ENABLED }}
+          ALERT_RECOVERED_ENABLED: ${{ env.ALERT_RECOVERED_ENABLED }}
+
+      - name: Проверить, нужно ли слать алерт
+        if: always()
+        id: telegram_check
+        run: echo "should_send=$(cat telegram_should_send.txt)" >> $GITHUB_OUTPUT
+
+      - name: Отправить Telegram alert
+        if: ${{ always() && steps.telegram_check.outputs.should_send == '1' }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            --data-urlencode "text@telegram_message.txt"
+
+      - name: Подготовить директорию публикации отчёта
+        if: always()
+        run: |
+          mkdir -p allure-publish
+          if [ -d allure-report ]; then
+            cp -R allure-report/. allure-publish/
+          fi
+          if [ -f notify_state.json ]; then
+            cp notify_state.json allure-publish/notify_state.json || true
+          fi
+
+      - name: Публикация отчёта на GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        if: always()
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: allure-publish
+          destination_dir: adblock
