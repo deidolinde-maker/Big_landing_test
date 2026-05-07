@@ -467,10 +467,31 @@ FORM_CONFIGS = {
         "no_house":   True,
         "no_suggest": True,
     },
+    "undecided": {
+        "street":     ".undecided_address_street",
+        "house":      ".undecided_address_house",
+        "phone":      ".undecided_address_phone",
+        "submit":     ".undecided_address_button_send",
+        "no_house":   False,
+        "no_suggest": False,
+    },
+    "moving": {
+        "street":     ".moving_address_street",
+        "house":      ".moving_address_house",
+        "phone":      ".moving_address_phone",
+        "submit":     ".moving_address_button_send",
+        "no_house":   False,
+        "no_suggest": False,
+    },
 }
 
 # CSS-классы кнопок, открывающих попапы (по типу формы)
 POPUP_BUTTON_CLASSES = {
+    "connection":         ".connection_address_button",
+    "connection_card":    ".connection_address_card_button",
+    "checkaddress":       ".checkaddress_address_button",
+    "undecided":          ".checkaddress-undecided",
+    "moving":             ".moving_address_button",
     "profit":             ".profit_address_button",
     "express-connection": ".express-connection_address_button",
     "business":           ".business_no_address_button",
@@ -2099,7 +2120,15 @@ def collect_popup_buttons(page: Page) -> list:
                 )
                 continue
             seen_idx.add(i)
-            result.append({"index": i, "text": text, "form_hint": None, "css": None})
+            result.append(
+                {
+                    "index": i,
+                    "text": text,
+                    "form_hint": None,
+                    "css": None,
+                    "trigger_kind": "generic",
+                }
+            )
             text_counters[text_key] = current_count + 1
             print(f"  [COLLECT] #{len(result)} index={i} '{text}'")
         except Exception:
@@ -2110,6 +2139,8 @@ def collect_popup_buttons(page: Page) -> list:
         if form_hint == "business":
             continue   # бизнес собирается отдельно
         btns = page.locator(css_class)
+        effective_form_hint = "connection" if form_hint == "connection_card" else form_hint
+        trigger_kind = "connection_card" if form_hint == "connection_card" else form_hint
         for i in range(btns.count()):
             btn = btns.nth(i)
             try:
@@ -2121,20 +2152,27 @@ def collect_popup_buttons(page: Page) -> list:
                 if global_idx in seen_idx:
                     continue
                 text = (btn.inner_text() or "").strip().lower()
-                text_key = (form_hint, text)
+                text_key = (effective_form_hint, text)
                 current_count = text_counters.get(text_key, 0)
                 if current_count >= POPUP_MAX_BUTTONS_PER_TEXT:
                     print(
-                        f"  [COLLECT] SKIP duplicate text '{text}' ({form_hint}) "
+                        f"  [COLLECT] SKIP duplicate text '{text}' ({effective_form_hint}) "
                         f"(limit={POPUP_MAX_BUTTONS_PER_TEXT})"
                     )
                     continue
                 seen_idx.add(global_idx)
-                result.append({"index": global_idx, "text": text,
-                               "form_hint": form_hint, "css": css_class})
+                result.append(
+                    {
+                        "index": global_idx,
+                        "text": text,
+                        "form_hint": effective_form_hint,
+                        "css": css_class,
+                        "trigger_kind": trigger_kind,
+                    }
+                )
                 text_counters[text_key] = current_count + 1
                 print(f"  [COLLECT] #{len(result)} index={global_idx} "
-                      f"'{text}' ({form_hint})")
+                      f"'{text}' ({effective_form_hint})")
             except Exception:
                 pass
 
@@ -2343,17 +2381,21 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
                      btn_locator_fn, label: str = "POPUP",
                      has_name_field: bool = False,
                      service_mode: str = SERVICE_MODE_ALL,
-                     allow_root_return_after_thanks: bool = False) -> tuple[int, int, str | None]:
+                     allow_root_return_after_thanks: bool = False,
+                     expected_form_types: set[str] | None = None) -> tuple[int, int, str | None, set[str], set[str]]:
     success    = 0
     failed     = 0
     first_fail = None
     fail_details = []
+    tested_form_types: set[str] = set()
+    tested_trigger_kinds: set[str] = set()
     site_label = base_url.replace("https://", "").replace("http://", "").strip("/")
     no_confirmation_by_text = {}
 
     for num, entry in enumerate(buttons, 1):
         text      = entry.get("text", "")
         form_hint = entry.get("form_hint")
+        trigger_kind = str(entry.get("trigger_kind") or "generic")
         text_key = (form_hint or "generic", (text or "").strip().lower())
         if no_confirmation_by_text.get(text_key, 0) >= POPUP_REPEAT_NO_CONFIRMATION_SKIP_THRESHOLD:
             print(
@@ -2506,6 +2548,17 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
             register_failure("popup_not_found")
             continue
 
+        if expected_form_types and form_type not in expected_form_types:
+            print(f"  [{label}] Пропуск формы '{form_type}': не в expected_form_types")
+            close_popup_or_page(page)
+            continue
+
+        if form_type in tested_form_types:
+            print(f"  [{label}] Пропуск формы '{form_type}': тип уже проверен")
+            close_popup_or_page(page)
+            continue
+        tested_form_types.add(form_type)
+
         detected_service_values = []
         if form_type not in ("profit", "business"):
             detected_service_values = detect_service_place_values(container)
@@ -2593,6 +2646,7 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
                 )
                 if ok:
                     print(f"  [{label}] ✅ Заявка принята ({service_label})")
+                    tested_trigger_kinds.add(trigger_kind)
                     thanks_ok, thanks_reason = verify_thanks_close_and_return(
                         page,
                         return_url_before_submit,
@@ -2615,6 +2669,7 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
                     continue
             else:
                 print(f"  [{label}] ✅ Форма готова (REALLY_SUBMIT=False, {service_label})")
+                tested_trigger_kinds.add(trigger_kind)
                 close_popup_or_page(page)
                 success += 1
 
@@ -2638,20 +2693,27 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
         f"\n{sep}\n[{label} RESULT] ✅ {success}  ❌ {failed}  "
         f"Submit-попыток: {total_attempts}\n{sep}\n"
     )
-    return success, failed, first_fail
+    return success, failed, first_fail, tested_form_types, tested_trigger_kinds
 
 
 def process_all_popups(page: Page, base_url: str,
                         has_name_field: bool = False,
                         service_mode: str = SERVICE_MODE_ALL,
-                        allow_root_return_after_thanks: bool = False) -> tuple[int, int, str | None]:
-    auto_success, auto_failed, auto_first_fail, _auto_tested = process_auto_profit_popup(
-        page,
-        base_url,
-        has_name_field=has_name_field,
-        service_mode=service_mode,
-        allow_root_return_after_thanks=allow_root_return_after_thanks,
-    )
+                        allow_root_return_after_thanks: bool = False,
+                        expected_form_types: set[str] | None = None,
+                        expect_connection_cards: bool = False) -> tuple[int, int, str | None, set[str], set[str]]:
+    should_check_auto_profit = expected_form_types is None or "profit" in expected_form_types
+    if should_check_auto_profit:
+        auto_success, auto_failed, auto_first_fail, _auto_tested = process_auto_profit_popup(
+            page,
+            base_url,
+            has_name_field=has_name_field,
+            service_mode=service_mode,
+            allow_root_return_after_thanks=allow_root_return_after_thanks,
+        )
+    else:
+        auto_success, auto_failed, auto_first_fail, _auto_tested = 0, 0, None, False
+        print("[AUTO-PROFIT] Пропуск: profit не входит в expected_form_types")
 
     # После auto-profit возвращаемся на базовый URL, чтобы сбор кнопок шёл
     # с основной страницы, даже если auto-submit привёл на /thanks.
@@ -2674,7 +2736,14 @@ def process_all_popups(page: Page, base_url: str,
 
     if not buttons:
         print("[POPUP] Кнопки не найдены — пропускаем")
-        return auto_success, auto_failed, auto_first_fail
+        return auto_success, auto_failed, auto_first_fail, set(), set()
+
+    if expect_connection_cards:
+        card_buttons = [b for b in buttons if b.get("trigger_kind") == "connection_card"]
+        other_buttons = [b for b in buttons if b.get("trigger_kind") != "connection_card"]
+        if card_buttons:
+            buttons = card_buttons + other_buttons
+            print(f"[POPUP] Приоритет card-триггеров: {len(card_buttons)}")
 
     def locate(page, entry):
         index = entry.get("index")
@@ -2702,21 +2771,23 @@ def process_all_popups(page: Page, base_url: str,
             return page.locator("button").filter(has_text=text).first
         return page.locator("button").first
 
-    success, failed, first_fail = _run_popup_cycle(
+    success, failed, first_fail, tested_types, tested_trigger_kinds = _run_popup_cycle(
         page, buttons, base_url, locate, label="POPUP",
         has_name_field=has_name_field,
         service_mode=service_mode,
         allow_root_return_after_thanks=allow_root_return_after_thanks,
+        expected_form_types=expected_form_types,
     )
     total_success = auto_success + success
     total_failed = auto_failed + failed
     total_first_fail = auto_first_fail if auto_first_fail else first_fail
-    return total_success, total_failed, total_first_fail
+    return total_success, total_failed, total_first_fail, tested_types, tested_trigger_kinds
 
 
 def process_business_popups(page: Page, base_url: str,
                              has_name_field: bool = False,
-                             service_mode: str = SERVICE_MODE_ALL) -> tuple[int, int, str | None]:
+                             service_mode: str = SERVICE_MODE_ALL,
+                             expected_form_types: set[str] | None = None) -> tuple[int, int, str | None, set[str]]:
     if normalize_service_mode(service_mode) == SERVICE_MODE_VARIANTS:
         print("[BUSINESS] VARIANTS-режим: шаг /business пропущен")
         return 0, 0, None
@@ -2724,7 +2795,7 @@ def process_business_popups(page: Page, base_url: str,
     buttons = collect_business_buttons(page)
     if not buttons:
         print("[BUSINESS] Кнопки не найдены — пропускаем")
-        return 0, 0, None
+        return 0, 0, None, set()
 
     def locate(page, entry):
         return page.locator(POPUP_BUTTON_CLASSES["business"]).nth(entry["nth"])
@@ -2733,6 +2804,7 @@ def process_business_popups(page: Page, base_url: str,
         page, buttons, base_url, locate, label="BUSINESS",
         has_name_field=has_name_field, service_mode=service_mode,
         allow_root_return_after_thanks=True,
+        expected_form_types=expected_form_types,
     )
 
 
@@ -2988,6 +3060,17 @@ def run_city_scenario(page: Page, base_url: str, city_name: str) -> tuple[str | 
 
     print(f"  [CITY] ✅ {city_base_url}")
     return city_base_url, city_base_url + "/business"
+
+
+def normalize_expected_form_types(cfg: dict) -> tuple[set[str], set[str]]:
+    requested_raw = cfg.get("_expected_form_types") or []
+    requested = {str(item).strip().lower() for item in requested_raw if str(item).strip()}
+    supported = set(FORM_CONFIGS.keys())
+    active = requested.intersection(supported)
+    unsupported = requested - supported
+    return active, unsupported
+
+
 def run_site_scenario(page: Page, cfg: dict):
     """
     Полный сценарий для сайта:
@@ -3006,14 +3089,39 @@ def run_site_scenario(page: Page, cfg: dict):
     city_base      = None
     city_biz       = None
     service_mode   = normalize_service_mode(cfg.get("_service_mode", SERVICE_MODE_ALL))
+    source_mode    = str(cfg.get("_source_mode") or "").strip().lower()
+    is_url_mode    = source_mode == "url_file"
+    expect_connection_cards = bool(cfg.get("_expect_connection_cards", False))
+    expected_forms, unsupported_forms = normalize_expected_form_types(cfg)
+    optional_expected_forms, _ = normalize_expected_form_types(
+        {"_expected_form_types": cfg.get("_optional_expected_form_types", [])}
+    )
+    expected_popup_forms = expected_forms - {"checkaddress", "business"}
+    optional_popup_forms = optional_expected_forms - {"checkaddress", "business"}
+    expected_business_forms = {"business"} if "business" in expected_forms else set()
 
     print(f"\n{'#'*55}\n# САЙТ: {site_label} | MODE: {service_mode}\n{'#'*55}")
+    if is_url_mode:
+        print(f"  [URL-MODE] expected forms: {', '.join(sorted(expected_forms)) or '(none)'}")
+        if optional_popup_forms:
+            print(f"  [URL-MODE] optional popup forms: {', '.join(sorted(optional_popup_forms))}")
+    if unsupported_forms:
+        text = (
+            f"[{site_label}] Формы ещё не реализованы в тесте: "
+            f"{', '.join(sorted(unsupported_forms))}"
+        )
+        print(f"  [FORM] {text}")
+        allure.attach(
+            text,
+            name=f"Unsupported expected forms ({site_label})",
+            attachment_type=allure.attachment_type.TEXT,
+        )
 
     # ── 1. Форма checkaddress ─────────────────────────────────────────────
     with allure.step("Шаг 1: форма checkaddress"):
         if service_mode == SERVICE_MODE_VARIANTS:
             mark_step_not_applicable(site_label, "1", "форма checkaddress", "service_mode=variants")
-        elif cfg.get("has_checkaddress"):
+        elif ("checkaddress" in expected_forms) if is_url_mode else cfg.get("has_checkaddress"):
             print(f"\n{sep}\n[{site_label}] Шаг 1: форма checkaddress\n{sep}")
             goto_or_handle_step(page, base_url, site_label, "1", "форма checkaddress")
             close_overlays(page)
@@ -3059,7 +3167,12 @@ def run_site_scenario(page: Page, cfg: dict):
             if step_reason:
                 send_step_alert(site_label, "1", "форма checkaddress", step_reason, page)
         else:
-            mark_step_not_applicable(site_label, "1", "форма checkaddress", "has_checkaddress=False")
+            reason = (
+                "не входит в expected forms текущего URL"
+                if is_url_mode
+                else "has_checkaddress=False"
+            )
+            mark_step_not_applicable(site_label, "1", "форма checkaddress", reason)
 
     # ── 2. Попапы главной ─────────────────────────────────────────────────
     with allure.step("Шаг 2: попапы главной"):
@@ -3067,11 +3180,36 @@ def run_site_scenario(page: Page, cfg: dict):
         goto_or_handle_step(page, base_url, site_label, "2", "попапы главной")
         close_overlays(page)
         try:
-            s, f, first_fail = process_all_popups(
-                page, base_url, has_name_field=has_name_field, service_mode=service_mode
+            s, f, first_fail, tested_popup_forms, tested_trigger_kinds = process_all_popups(
+                page,
+                base_url,
+                has_name_field=has_name_field,
+                service_mode=service_mode,
+                expected_form_types=expected_popup_forms if is_url_mode else None,
+                expect_connection_cards=expect_connection_cards if is_url_mode else False,
             )
         except SiteUnavailableError as e:
             skip_site_due_unavailability(site_label, "2", "попапы главной", str(e), page)
+        if is_url_mode:
+            missing_popup_forms = expected_popup_forms - tested_popup_forms
+            missing_required_popup_forms = missing_popup_forms - optional_popup_forms
+            missing_optional_popup_forms = missing_popup_forms & optional_popup_forms
+            if missing_optional_popup_forms:
+                optional_text = ", ".join(sorted(missing_optional_popup_forms))
+                print(f"  [POPUP] ℹ️ optional формы не обнаружены (допустимо): {optional_text}")
+            if missing_required_popup_forms:
+                f += len(missing_required_popup_forms)
+                missing_text = ", ".join(sorted(missing_required_popup_forms))
+                detail = f"не найдены ожидаемые типы форм: {missing_text}"
+                if first_fail is None:
+                    first_fail = detail[:220]
+                print(f"  [POPUP] ❌ {detail}")
+            if expect_connection_cards and "connection_card" not in tested_trigger_kinds:
+                f += 1
+                detail = "не сработал card-триггер connection_address_card_button"
+                if first_fail is None:
+                    first_fail = detail[:220]
+                print(f"  [POPUP] ❌ {detail}")
         if f > 0:
             reason = f"{f} ошибок, {s} успешно"
             if first_fail:
@@ -3086,17 +3224,42 @@ def run_site_scenario(page: Page, cfg: dict):
     with allure.step("Шаг 3: попапы /business"):
         if service_mode == SERVICE_MODE_VARIANTS:
             mark_step_not_applicable(site_label, "3", "попапы /business", "service_mode=variants")
-        elif cfg.get("has_business"):
-            business_url = base_url.rstrip("/") + "/business"
+        elif ("business" in expected_forms) if is_url_mode else cfg.get("has_business"):
+            business_url = base_url
             print(f"\n{sep}\n[{site_label}] Шаг 3: попапы /business\n{sep}")
-            goto_business_or_handle_step(page, base_url, business_url, site_label, "3", "\u043f\u043e\u043f\u0430\u043f\u044b /business")
-            # close_overlays is already handled inside goto_business_or_handle_step
+            if is_url_mode:
+                goto_or_handle_step(page, business_url, site_label, "3", "попапы /business")
+                close_overlays(page)
+            else:
+                business_url = base_url.rstrip("/") + "/business"
+                goto_business_or_handle_step(
+                    page,
+                    base_url,
+                    business_url,
+                    site_label,
+                    "3",
+                    "\u043f\u043e\u043f\u0430\u043f\u044b /business",
+                )
+                # close_overlays is already handled inside goto_business_or_handle_step
             try:
-                s, f, first_fail = process_business_popups(
-                    page, business_url, has_name_field=has_name_field, service_mode=service_mode
+                s, f, first_fail, tested_business_forms = process_business_popups(
+                    page,
+                    business_url,
+                    has_name_field=has_name_field,
+                    service_mode=service_mode,
+                    expected_form_types=expected_business_forms if is_url_mode else None,
                 )
             except SiteUnavailableError as e:
                 skip_site_due_unavailability(site_label, "3", "попапы /business", str(e), page)
+            if is_url_mode:
+                missing_business = expected_business_forms - tested_business_forms
+                if missing_business:
+                    f += len(missing_business)
+                    missing_text = ", ".join(sorted(missing_business))
+                    detail = f"не найдены ожидаемые business-формы: {missing_text}"
+                    if first_fail is None:
+                        first_fail = detail[:220]
+                    print(f"  [BUSINESS] ❌ {detail}")
             if f > 0:
                 reason = f"{f} ошибок, {s} успешно"
                 if first_fail:
@@ -3107,11 +3270,23 @@ def run_site_scenario(page: Page, cfg: dict):
                 + (f" | first={first_fail}" if first_fail else "")
             )
         else:
-            mark_step_not_applicable(site_label, "3", "попапы /business", "has_business=False")
+            reason = (
+                "не входит в expected forms текущего URL"
+                if is_url_mode
+                else "has_business=False"
+            )
+            mark_step_not_applicable(site_label, "3", "попапы /business", reason)
 
     # ── 4. Сценарий города ────────────────────────────────────────────────
     with allure.step("Шаг 4: выбор города"):
-        if city_name:
+        if is_url_mode:
+            mark_step_not_applicable(
+                site_label,
+                "4",
+                "выбор города",
+                "url_mode: смена региона в хедере отключена",
+            )
+        elif city_name:
             print(f"\n{sep}\n[{site_label}] Шаг 4: город '{city_name}'\n{sep}")
             try:
                 city_base, city_biz = run_city_scenario(page, base_url, city_name)
@@ -3126,7 +3301,14 @@ def run_site_scenario(page: Page, cfg: dict):
 
     # ── 4a. Попапы главной города ─────────────────────────────────────────
     with allure.step("Шаг 4a: попапы главной города"):
-        if city_name is None:
+        if is_url_mode:
+            mark_step_not_applicable(
+                site_label,
+                "4a",
+                "попапы главной города",
+                "url_mode: шаг отключен в первой итерации",
+            )
+        elif city_name is None:
             mark_step_not_applicable(site_label, "4a", "попапы главной города", "city_name=None")
         elif city_base is None:
             mark_step_not_applicable(site_label, "4a", "попапы главной города", "городской сценарий недоступен по условию")
@@ -3134,7 +3316,7 @@ def run_site_scenario(page: Page, cfg: dict):
             goto_or_handle_step(page, city_base, site_label, "4a", "попапы главной города")
             close_overlays(page)
             try:
-                s, f, first_fail = process_all_popups(
+                s, f, first_fail, _, _ = process_all_popups(
                     page,
                     city_base,
                     has_name_field=has_name_field,
@@ -3155,7 +3337,14 @@ def run_site_scenario(page: Page, cfg: dict):
 
     # ── 4b. Попапы /business города ───────────────────────────────────────
     with allure.step("Шаг 4b: попапы /business города"):
-        if city_name is None:
+        if is_url_mode:
+            mark_step_not_applicable(
+                site_label,
+                "4b",
+                "попапы /business города",
+                "url_mode: шаг отключен в первой итерации",
+            )
+        elif city_name is None:
             mark_step_not_applicable(site_label, "4b", "попапы /business города", "city_name=None")
         elif service_mode == SERVICE_MODE_VARIANTS:
             mark_step_not_applicable(site_label, "4b", "попапы /business города", "service_mode=variants")
@@ -3167,7 +3356,7 @@ def run_site_scenario(page: Page, cfg: dict):
             goto_business_or_handle_step(page, city_base, city_biz, site_label, "4b", "\u043f\u043e\u043f\u0430\u043f\u044b /business \u0433\u043e\u0440\u043e\u0434\u0430")
             # close_overlays is already handled inside goto_business_or_handle_step
             try:
-                s, f, first_fail = process_business_popups(
+                s, f, first_fail, _ = process_business_popups(
                     page, city_biz, has_name_field=has_name_field, service_mode=service_mode
                 )
             except SiteUnavailableError as e:

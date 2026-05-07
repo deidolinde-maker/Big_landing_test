@@ -3,6 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from config.form_expectations import (
+    build_expected_form_types,
+    canonicalize_url,
+    expects_connection_card_trigger,
+    optional_expected_form_types,
+    load_brand_form_overrides,
+)
 from config.loader import available_providers, load_site_configs
 from config.schema import derive_site_id
 
@@ -35,7 +42,7 @@ def _normalize_url(raw: str) -> str | None:
     parsed = urlsplit(line)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError(f"Некорректный URL в файле: {line!r}")
-    return line
+    return canonicalize_url(line)
 
 
 def load_urls_for_brand(brand: str, *, urls_dir: str | Path | None = None) -> list[str]:
@@ -87,16 +94,31 @@ def build_site_configs_from_urls(
 
     source_urls = load_urls_for_brand(brand_key, urls_dir=urls_dir)
     provider_sites = load_site_configs(provider=brand_key)
+    form_overrides = load_brand_form_overrides(brand_key)
 
     by_host: dict[str, dict] = {}
     for _, cfg in provider_sites.items():
         host_id = derive_site_id(cfg["base_url"])
         by_host[host_id] = cfg
 
+    def _resolve_source_cfg(host: str) -> dict | None:
+        exact = by_host.get(host)
+        if exact is not None:
+            return exact
+
+        candidates: list[tuple[int, dict]] = []
+        for base_host, candidate_cfg in by_host.items():
+            if host.endswith("." + base_host) or base_host.endswith("." + host):
+                candidates.append((len(base_host), candidate_cfg))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        return candidates[0][1]
+
     built: dict[str, dict] = {}
     for page_url in source_urls:
         host_id = derive_site_id(page_url)
-        source_cfg = by_host.get(host_id)
+        source_cfg = _resolve_source_cfg(host_id)
         if source_cfg is None:
             raise ValueError(
                 f"Для URL {page_url!r} не найден провайдерный базовый конфиг по домену {host_id!r}."
@@ -107,8 +129,14 @@ def build_site_configs_from_urls(
         cfg_copy["_provider"] = brand_key
         cfg_copy["_site_id"] = host_id
         cfg_copy["_source_mode"] = "url_file"
+        cfg_copy["_expected_form_types"] = build_expected_form_types(
+            page_url=page_url,
+            site_cfg=cfg_copy,
+            override_rules=form_overrides,
+        )
+        cfg_copy["_optional_expected_form_types"] = optional_expected_form_types(page_url)
+        cfg_copy["_expect_connection_cards"] = expects_connection_card_trigger(page_url)
 
         built[page_url] = cfg_copy
 
     return built
-

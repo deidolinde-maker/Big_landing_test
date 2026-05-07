@@ -1,4 +1,4 @@
-name: Playwright Tests
+﻿name: Playwright Tests
 
 on:
   # Запуск вручную через GitHub UI с выбором сайта
@@ -117,7 +117,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir=allure-results-core-chromium
             --timeout=600
             -s
@@ -145,7 +145,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir=allure-results-core-firefox
             --timeout=600
             -s
@@ -173,7 +173,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir=allure-results-core-webkit
             --timeout=600
             -s
@@ -201,7 +201,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir=allure-results-variants-chromium
             --timeout=600
             -s
@@ -229,7 +229,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir=allure-results-variants-firefox
             --timeout=600
             -s
@@ -257,7 +257,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir=allure-results-variants-webkit
             --timeout=600
             -s
@@ -362,3 +362,4 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages
           publish_dir: allure-publish
+

@@ -1,4 +1,4 @@
-name: Provider Mobile Orchestrator
+﻿name: Provider Mobile Orchestrator
 
 on:
   workflow_dispatch:
@@ -154,7 +154,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir="allure-results-core-${ALLURE_SUFFIX}"
             --timeout=600
             -s
@@ -178,7 +178,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir="allure-results-variants-${ALLURE_SUFFIX}"
             --timeout=600
             -s
@@ -295,3 +295,4 @@ jobs:
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
             --data-urlencode "text@mobile_orchestrator_summary.txt"
+

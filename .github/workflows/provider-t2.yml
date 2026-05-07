@@ -1,4 +1,4 @@
-name: Provider T2 Tests
+﻿name: Provider T2 Tests
 
 on:
   workflow_dispatch:
@@ -192,7 +192,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir=allure-results-core-chromium
             --timeout=600
             -s
@@ -221,7 +221,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir=allure-results-core-firefox
             --timeout=600
             -s
@@ -250,7 +250,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir=allure-results-core-webkit
             --timeout=600
             -s
@@ -279,7 +279,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir=allure-results-core-mobile-chromium
             --timeout=600
             -s
@@ -309,7 +309,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir=allure-results-core-mobile-webkit
             --timeout=600
             -s
@@ -338,7 +338,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir=allure-results-variants-chromium
             --timeout=600
             -s
@@ -367,7 +367,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir=allure-results-variants-firefox
             --timeout=600
             -s
@@ -396,7 +396,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir=allure-results-variants-webkit
             --timeout=600
             -s
@@ -425,7 +425,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir=allure-results-variants-mobile-chromium
             --timeout=600
             -s
@@ -455,7 +455,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir=allure-results-variants-mobile-webkit
             --timeout=600
             -s
@@ -572,3 +572,4 @@ jobs:
           publish_branch: gh-pages
           publish_dir: allure-publish
           destination_dir: provider-t2
+

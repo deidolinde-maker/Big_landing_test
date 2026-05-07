@@ -1,4 +1,4 @@
-name: Playwright Tests (Adblock Profile)
+﻿name: Playwright Tests (Adblock Profile)
 
 on:
   workflow_dispatch:
@@ -73,7 +73,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir=allure-results-core-adblock
             --timeout=600
             -s
@@ -101,7 +101,7 @@ jobs:
         run: |
           set -e
           PYTEST_ARGS=(
-            test_universal2.py
+            big_landing_code.py
             --alluredir=allure-results-variants-adblock
             --timeout=600
             -s
@@ -195,3 +195,4 @@ jobs:
           publish_branch: gh-pages
           publish_dir: allure-publish
           destination_dir: adblock
+

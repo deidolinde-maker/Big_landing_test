@@ -1,4 +1,4 @@
-# PB3 Final Acceptance Report
+﻿# PB3 Final Acceptance Report
 Дата: 2026-04-29
 Статус: условно принят (go-live), freeze с остаточным условием stability-soak
 
@@ -16,7 +16,7 @@
    - UTC окно: `2026-04-29T06:53:11Z` -> `2026-04-29T08:22:50Z`
    - Провайдерные jobs: MTS, Beeline, Megafon, T2, Rostelecom, Domru — все `success`.
 2. Локальный минимальный test-gate:
-   - `python -m pytest --collect-only -q test_universal2.py` -> `23 tests collected`.
+   - `python -m pytest --collect-only -q big_landing_code.py` -> `23 tests collected`.
    - `python -m pytest --collect-only -q mobile_tariffs_tests/tests/test_mobile_tariffs.py` -> `10 tests collected`.
 3. CI-контур после миграции:
    - legacy `allure.yml` переведен в ручной режим (`workflow_dispatch`, без `schedule`);
@@ -46,3 +46,4 @@
 ## 6. Решение
 - PB3 принимается для текущей эксплуатации через `provider-orchestrator.yml`.
 - Финальное полное закрытие пункта P3-R12: после выполнения 3-дневного stability-soak.
+

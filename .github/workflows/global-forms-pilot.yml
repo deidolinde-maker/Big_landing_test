@@ -1,4 +1,4 @@
-name: Global Forms Pilot (URL Files)
+﻿name: Global Forms Pilot (URL Files)
 
 on:
   workflow_dispatch:
@@ -48,6 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         brand: ${{ fromJson(inputs.url_brand == 'all' && '["mts","beeline","megafon","t2","rostelecom","domru","ttk"]' || format('["{0}"]', inputs.url_brand)) }}
 
@@ -73,7 +74,7 @@ jobs:
       - name: Run URL brand in Chromium
         if: ${{ inputs.run_chromium }}
         run: |
-          python -m pytest test_universal2.py \
+          python -m pytest big_landing_code.py \
             --url-brand=${{ matrix.brand }} \
             --service-mode=${{ inputs.service_mode }} \
             --browser=chromium \
@@ -84,7 +85,7 @@ jobs:
       - name: Run URL brand in Firefox
         if: ${{ inputs.run_firefox }}
         run: |
-          python -m pytest test_universal2.py \
+          python -m pytest big_landing_code.py \
             --url-brand=${{ matrix.brand }} \
             --service-mode=${{ inputs.service_mode }} \
             --browser=firefox \
@@ -95,7 +96,7 @@ jobs:
       - name: Run URL brand in WebKit
         if: ${{ inputs.run_webkit }}
         run: |
-          python -m pytest test_universal2.py \
+          python -m pytest big_landing_code.py \
             --url-brand=${{ matrix.brand }} \
             --service-mode=${{ inputs.service_mode }} \
             --browser=webkit \
@@ -110,3 +111,4 @@ jobs:
           name: allure-results-${{ matrix.brand }}
           path: allure-results
           if-no-files-found: ignore
+

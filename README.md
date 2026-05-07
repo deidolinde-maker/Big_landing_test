@@ -4,12 +4,12 @@
 `https://github.com/deidolinde-maker/Everyday_test.git`.
 
 Проект состоит из двух независимых наборов UI-автотестов:
-1. Проверка форм заявок на лендингах провайдеров (корень репозитория, `test_universal2.py`).
+1. Проверка форм заявок на лендингах провайдеров (корень репозитория, `big_landing_code.py`).
 2. Проверка блока мобильных тарифов (`mobile_tariffs_tests/`).
 
 ## 1. Структура репозитория
 
-- `test_universal2.py` - основной e2e-тест форм (главная, popups, `/business`, городские сценарии).
+- `big_landing_code.py` - основной e2e-тест форм (главная, popups, `/business`, городские сценарии).
 - `conftest.py` - параметры `--provider`, `--site`, `--service-mode`, `--blocking-profile`, вложения в Allure при падении.
 - `config/providers/*.py` - провайдерные конфиги сайтов для Suite A.
 - `config/loader.py` - объединение провайдерных конфигов в runtime-формат для теста.
@@ -36,7 +36,7 @@
 - при этом провайдерные ошибки (`alert_errors` / `alert_aggregates`) остаются включаемыми;
 - итоговый единый summary отправляется отдельным `final_summary` job оркестратора.
 
-## 2. Suite A: Формы заявок (`test_universal2.py`)
+## 2. Suite A: Формы заявок (`big_landing_code.py`)
 
 ### 2.1 Что проверяет тест
 
@@ -353,7 +353,7 @@ Common errors:
    - добавить/обновить селекторы в `FORM_CONFIGS`,
    - при необходимости расширить fallback-селекторы.
 5. Прогнать локально точечно:
-   - `python -m pytest test_universal2.py -s --site=example-site.ru --alluredir=allure-results --timeout=600`
+   - `python -m pytest big_landing_code.py -s --site=example-site.ru --alluredir=allure-results --timeout=600`
 6. Проверить в логах:
    - успешные submit-подтверждения,
    - отсутствие ложных `critical`,
@@ -436,20 +436,20 @@ python -m playwright install chromium
 Все сайты:
 
 ```bash
-python -m pytest test_universal2.py -s --alluredir=allure-results --timeout=600 --browser chromium --blocking-profile none
+python -m pytest big_landing_code.py -s --alluredir=allure-results --timeout=600 --browser chromium --blocking-profile none
 ```
 
 Один сайт:
 
 ```bash
-python -m pytest test_universal2.py -s --site=mts-home.online --alluredir=allure-results --timeout=600 --browser chromium --blocking-profile none
+python -m pytest big_landing_code.py -s --site=mts-home.online --alluredir=allure-results --timeout=600 --browser chromium --blocking-profile none
 ```
 
 Один сайт в adblock MVP-режиме:
 
 ```bash
 python -m playwright install firefox
-python -m pytest test_universal2.py -s --site=mts-home.online --alluredir=allure-results --timeout=600 --browser firefox --blocking-profile adblock-mvp
+python -m pytest big_landing_code.py -s --site=mts-home.online --alluredir=allure-results --timeout=600 --browser firefox --blocking-profile adblock-mvp
 ```
 
 ### 7.2 Suite B (mobile)
@@ -473,22 +473,22 @@ python -m pytest -k "MTS mts-home.online"
 Core (provider full):
 
 ```bash
-python -m pytest test_universal2.py -s --alluredir=allure-results-core-mobile-chromium --timeout=600 --service-mode=core --browser=chromium --execution-profile=mobile-chromium --blocking-profile=none --provider=domru
-python -m pytest test_universal2.py -s --alluredir=allure-results-core-mobile-webkit --timeout=600 --service-mode=core --browser=webkit --execution-profile=mobile-webkit --blocking-profile=none --provider=domru
+python -m pytest big_landing_code.py -s --alluredir=allure-results-core-mobile-chromium --timeout=600 --service-mode=core --browser=chromium --execution-profile=mobile-chromium --blocking-profile=none --provider=domru
+python -m pytest big_landing_code.py -s --alluredir=allure-results-core-mobile-webkit --timeout=600 --service-mode=core --browser=webkit --execution-profile=mobile-webkit --blocking-profile=none --provider=domru
 ```
 
 Variants (provider full):
 
 ```bash
-python -m pytest test_universal2.py -s --alluredir=allure-results-variants-mobile-chromium --timeout=600 --service-mode=variants --browser=chromium --execution-profile=mobile-chromium --blocking-profile=none --provider=domru
-python -m pytest test_universal2.py -s --alluredir=allure-results-variants-mobile-webkit --timeout=600 --service-mode=variants --browser=webkit --execution-profile=mobile-webkit --blocking-profile=none --provider=domru
+python -m pytest big_landing_code.py -s --alluredir=allure-results-variants-mobile-chromium --timeout=600 --service-mode=variants --browser=chromium --execution-profile=mobile-chromium --blocking-profile=none --provider=domru
+python -m pytest big_landing_code.py -s --alluredir=allure-results-variants-mobile-webkit --timeout=600 --service-mode=variants --browser=webkit --execution-profile=mobile-webkit --blocking-profile=none --provider=domru
 ```
 
 Adblock MVP (mobile):
 
 ```bash
-python -m pytest test_universal2.py -s --alluredir=allure-results-core-mobile-chromium-adblock --timeout=600 --service-mode=core --browser=chromium --execution-profile=mobile-chromium --blocking-profile=adblock-mvp --provider=domru
-python -m pytest test_universal2.py -s --alluredir=allure-results-core-mobile-webkit-adblock --timeout=600 --service-mode=core --browser=webkit --execution-profile=mobile-webkit --blocking-profile=adblock-mvp --provider=domru
+python -m pytest big_landing_code.py -s --alluredir=allure-results-core-mobile-chromium-adblock --timeout=600 --service-mode=core --browser=chromium --execution-profile=mobile-chromium --blocking-profile=adblock-mvp --provider=domru
+python -m pytest big_landing_code.py -s --alluredir=allure-results-core-mobile-webkit-adblock --timeout=600 --service-mode=core --browser=webkit --execution-profile=mobile-webkit --blocking-profile=adblock-mvp --provider=domru
 ```
 
 Актуальный статус mobile rollout (на 2026-05-04):
@@ -524,7 +524,7 @@ For Jenkins proxy-only mode, `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` may be 
 
 ## 10. Как тестировался скрипт
 
-### 10.1 Основной suite (формы, `test_universal2.py`)
+### 10.1 Основной suite (формы, `big_landing_code.py`)
 
 1. Прогоны в терминале через видимый браузер (`--headed`) на отдельных доменах и на полном списке.
 2. Сравнение факта отправки заявок в реальном времени в Advizer с действиями теста и URL подтверждения.
@@ -566,4 +566,5 @@ For Jenkins proxy-only mode, `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` may be 
 4. Проверка совместимости с CI:
    - локальный прогон по одному сайту (`--site`) и полный прогон,
    - соответствие README фактическим значениям таймаутов/ретраев из кода.
+
 

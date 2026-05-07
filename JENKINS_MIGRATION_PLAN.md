@@ -1,4 +1,4 @@
-# План переноса Everyday_test в Jenkins
+﻿# План переноса Everyday_test в Jenkins
 
 Обновлено: 2026-05-06
 
@@ -18,7 +18,7 @@
 
 Входит в объем:
 
-- провайдерные сценарии `test_universal2.py`,
+- провайдерные сценарии `big_landing_code.py`,
 - режимы `core`, `variants`,
 - desktop и mobile execution profile,
 - smoke и full наборы провайдеров,
@@ -33,7 +33,7 @@
 
 Jenkins должен выполнять ту же логику, что и текущий CI:
 
-- `python -m pytest test_universal2.py ... --provider=<provider>`
+- `python -m pytest big_landing_code.py ... --provider=<provider>`
 - desktop: `--browser=chromium|firefox|webkit`
 - mobile:
   - `--browser=chromium --execution-profile=mobile-chromium`
@@ -166,3 +166,4 @@ Guardrail:
 - Миграция не меняет бизнес-логику провайдерных тестов.
 - Mobile-тесты используют те же provider-конфиги, что и desktop-тесты.
 - Архитектура централизована: изменения конфигов в одном месте автоматически подхватываются всеми execution profile.
+

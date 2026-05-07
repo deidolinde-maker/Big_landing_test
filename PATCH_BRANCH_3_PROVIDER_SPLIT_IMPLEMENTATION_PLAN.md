@@ -1,4 +1,4 @@
-# План реализации: Patch Branch 3 (Provider Split + Orchestrated Runs)
+﻿# План реализации: Patch Branch 3 (Provider Split + Orchestrated Runs)
 Дата: 2026-04-27
 
 ## Цель ветки
@@ -77,7 +77,7 @@ SITES = [
 
 ### P3-R0. Подготовка baseline и freeze интерфейсов
 - Объём:
-  - зафиксировать текущий рабочий запуск (`allure.yml`, `site_configs.py`, `test_universal2.py`);
+  - зафиксировать текущий рабочий запуск (`allure.yml`, `site_configs.py`, `big_landing_code.py`);
   - зафиксировать тестовый набор сайтов для контрольного сравнения.
 - Критерий приёмки:
   - есть baseline-результат до рефакторинга;
@@ -128,7 +128,7 @@ SITES = [
 ### P3-R4. Лоадер совместимости
 - Объём:
   - реализовать `config/loader.py`, который собирает провайдерные конфиги в прежний runtime-формат;
-  - переключить `test_universal2.py` на новый loader.
+  - переключить `big_landing_code.py` на новый loader.
 - Критерий приёмки:
   - тестовый рантайм не знает о деталях разбиения и получает прежнюю структуру данных.
 - Проверка:
@@ -299,3 +299,4 @@ SITES = [
    - добавлен единый `provider-mobile-orchestrator.yml`;
    - временные provider-specific mobile pilot workflows удалены.
 5. Во все `provider-*.yml` добавлены mobile-переключатели (`run_mobile_chromium`, `run_mobile_webkit`) и соответствующие mobile шаги (`core`, `variants`).
+

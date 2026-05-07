@@ -1,4 +1,4 @@
-pipeline {
+﻿pipeline {
   agent any
 
   options {
@@ -236,7 +236,7 @@ pipeline {
             profile="$4"
             suffix="$5"
 
-            PYTEST_ARGS="test_universal2.py --alluredir=allure-results-${mode}-${suffix} --timeout=600 -s --service-mode=${mode} --browser=${browser} --blocking-profile=${BLOCKING_PROFILE} --provider=${provider}"
+            PYTEST_ARGS="big_landing_code.py --alluredir=allure-results-${mode}-${suffix} --timeout=600 -s --service-mode=${mode} --browser=${browser} --blocking-profile=${BLOCKING_PROFILE} --provider=${provider}"
             if [ -n "${SITE}" ]; then
               PYTEST_ARGS="${PYTEST_ARGS} --site=${SITE}"
             fi
@@ -374,7 +374,7 @@ pipeline {
 
             "${pybin}" - <<'PY'
 from pathlib import Path
-from test_universal2 import send_telegram_alert
+from big_landing_code import send_telegram_alert
 
 text = Path("telegram_message.txt").read_text(encoding="utf-8").strip()
 if not text:
@@ -407,3 +407,4 @@ PY
     }
   }
 }
+
