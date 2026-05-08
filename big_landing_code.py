@@ -1385,7 +1385,19 @@ def verify_thanks_close_and_return(
         expected_host = (urlsplit(return_url).netloc or "").lower()
         current_host = (urlsplit(page.url).netloc or "").lower()
         if expected_host and current_host and expected_host != current_host:
-            return False, f"возврат на другой хост ({current_host} вместо {expected_host})"
+            # Для ряда лендингов допустим возврат с регионального поддомена
+            # на базовый домен (например, moskva.site.ru -> site.ru).
+            host_fallback_ok = (
+                allow_root_return
+                and expected_host.endswith("." + current_host)
+            )
+            if host_fallback_ok:
+                print(
+                    "  [THANKS] Возврат на базовый домен допустим "
+                    f"({expected_host} -> {current_host})"
+                )
+            else:
+                return False, f"возврат на другой хост ({current_host} вместо {expected_host})"
 
         expected_path = (urlsplit(return_url).path or "").rstrip("/")
         current_path = (urlsplit(page.url).path or "").rstrip("/")
@@ -3208,7 +3220,9 @@ def run_site_scenario(page: Page, cfg: dict):
                         )
                         if ok:
                             thanks_ok, thanks_reason = verify_thanks_close_and_return(
-                                page, return_url_before_submit
+                                page,
+                                return_url_before_submit,
+                                allow_root_return=is_url_mode,
                             )
                             if thanks_ok:
                                 nav_ok, _, nav_reason = safe_goto(page, base_url)
@@ -3247,6 +3261,7 @@ def run_site_scenario(page: Page, cfg: dict):
                 base_url,
                 has_name_field=has_name_field,
                 service_mode=service_mode,
+                allow_root_return_after_thanks=is_url_mode,
                 expected_form_types=expected_popup_forms if is_url_mode else None,
                 expect_connection_cards=expect_connection_cards if is_url_mode else False,
             )
