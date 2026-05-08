@@ -123,10 +123,16 @@ jobs:
           url_shard_index = int((os.getenv("URL_SHARD_INDEX") or "1").strip())
           url_shard_total = int((os.getenv("URL_SHARD_TOTAL") or "1").strip())
 
-          if url_shard_total < 1:
-              raise SystemExit("url_shard_total должен быть >= 1")
-          if url_shard_index < 1 or url_shard_index > url_shard_total:
-              raise SystemExit("url_shard_index должен быть в диапазоне [1..url_shard_total]")
+          if provider_scope == "beeline_split":
+              # Для auto-split режима шард задаётся внутри матрицы.
+              # Ручные inputs url_shard_* игнорируем, чтобы не падать на несовместимых значениях.
+              url_shard_index = 1
+              url_shard_total = 1
+          else:
+              if url_shard_total < 1:
+                  raise SystemExit("url_shard_total должен быть >= 1")
+              if url_shard_index < 1 or url_shard_index > url_shard_total:
+                  raise SystemExit("url_shard_index должен быть в диапазоне [1..url_shard_total]")
 
           providers_by_scope = {
               "big_two": ["mts", "beeline"],
