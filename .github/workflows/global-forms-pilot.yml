@@ -1,14 +1,17 @@
-﻿name: Global Forms Pilot (URL Files)
+name: Global Forms Pilot (Provider x Form Suite)
 
 on:
   workflow_dispatch:
     inputs:
-      url_brand:
-        description: "Бренд для прогона (или all)"
+      provider_scope:
+        description: "Набор провайдеров"
         required: true
-        default: "mts"
+        default: "big_two"
         type: choice
         options:
+          - big_two
+          - small
+          - all
           - mts
           - beeline
           - megafon
@@ -16,7 +19,21 @@ on:
           - rostelecom
           - domru
           - ttk
+      form_suite:
+        description: "Тип формы (или all)"
+        required: true
+        default: "all"
+        type: choice
+        options:
           - all
+          - profit
+          - connection
+          - connection_cards
+          - checkaddress
+          - business
+          - undecided
+          - moving
+          - express
       service_mode:
         description: "Режим submit"
         required: true
@@ -26,6 +43,16 @@ on:
           - core
           - variants
           - all
+      max_parallel:
+        description: "Максимум параллельных matrix-джоб"
+        required: true
+        default: "2"
+        type: choice
+        options:
+          - "1"
+          - "2"
+          - "3"
+          - "4"
       run_chromium:
         description: "Запустить Chromium"
         required: true
@@ -43,14 +70,63 @@ on:
         type: boolean
 
 jobs:
+  build_matrix:
+    name: Build Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build.outputs.matrix }}
+    steps:
+      - name: Build provider x form suite matrix
+        id: build
+        shell: bash
+        env:
+          PROVIDER_SCOPE: ${{ inputs.provider_scope }}
+          FORM_SUITE: ${{ inputs.form_suite }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+
+          all_providers = ["mts", "beeline", "megafon", "t2", "rostelecom", "domru", "ttk"]
+          suites_all = [
+              "profit",
+              "connection",
+              "connection_cards",
+              "checkaddress",
+              "business",
+              "undecided",
+              "moving",
+              "express",
+          ]
+
+          provider_scope = (os.getenv("PROVIDER_SCOPE") or "big_two").strip()
+          form_suite = (os.getenv("FORM_SUITE") or "all").strip()
+
+          providers_by_scope = {
+              "big_two": ["mts", "beeline"],
+              "small": ["megafon", "t2", "rostelecom", "domru", "ttk"],
+              "all": all_providers,
+          }
+          providers = providers_by_scope.get(provider_scope, [provider_scope])
+          suites = suites_all if form_suite == "all" else [form_suite]
+
+          matrix = [{"brand": provider, "form_suite": suite} for suite in suites for provider in providers]
+          print("Matrix size:", len(matrix))
+          print(json.dumps(matrix, ensure_ascii=False))
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"matrix={json.dumps(matrix)}\n")
+          PY
+
   pilot:
-    name: URL Pilot • ${{ matrix.brand }}
+    name: Pilot • ${{ matrix.brand }} • ${{ matrix.form_suite }}
+    needs: build_matrix
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: ${{ fromJson(inputs.max_parallel) }}
       matrix:
-        brand: ${{ fromJson(inputs.url_brand == 'all' && '["mts","beeline","megafon","t2","rostelecom","domru","ttk"]' || format('["{0}"]', inputs.url_brand)) }}
+        include: ${{ fromJson(needs.build_matrix.outputs.matrix) }}
 
     steps:
       - name: Checkout
@@ -71,33 +147,36 @@ jobs:
           sudo apt-get update
           python -m playwright install --with-deps chromium firefox webkit
 
-      - name: Run URL brand in Chromium
+      - name: Run in Chromium
         if: ${{ inputs.run_chromium }}
         run: |
           python -m pytest big_landing_code.py \
             --url-brand=${{ matrix.brand }} \
+            --form-suite=${{ matrix.form_suite }} \
             --service-mode=${{ inputs.service_mode }} \
             --browser=chromium \
             --execution-profile=desktop \
             --blocking-profile=none \
             --alluredir=allure-results
 
-      - name: Run URL brand in Firefox
+      - name: Run in Firefox
         if: ${{ inputs.run_firefox }}
         run: |
           python -m pytest big_landing_code.py \
             --url-brand=${{ matrix.brand }} \
+            --form-suite=${{ matrix.form_suite }} \
             --service-mode=${{ inputs.service_mode }} \
             --browser=firefox \
             --execution-profile=desktop \
             --blocking-profile=none \
             --alluredir=allure-results
 
-      - name: Run URL brand in WebKit
+      - name: Run in WebKit
         if: ${{ inputs.run_webkit }}
         run: |
           python -m pytest big_landing_code.py \
             --url-brand=${{ matrix.brand }} \
+            --form-suite=${{ matrix.form_suite }} \
             --service-mode=${{ inputs.service_mode }} \
             --browser=webkit \
             --execution-profile=desktop \
@@ -108,7 +187,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: allure-results-${{ matrix.brand }}
+          name: allure-results-${{ matrix.brand }}-${{ matrix.form_suite }}
           path: allure-results
           if-no-files-found: ignore
-

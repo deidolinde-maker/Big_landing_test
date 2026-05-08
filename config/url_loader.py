@@ -6,7 +6,11 @@ from urllib.parse import urlsplit
 from config.form_expectations import (
     build_expected_form_types,
     canonicalize_url,
+    expected_form_types_for_suite,
+    expects_connection_cards_for_suite,
     expects_connection_card_trigger,
+    filter_urls_for_form_suite,
+    normalize_form_suite,
     optional_expected_form_types,
     load_brand_form_overrides,
 )
@@ -77,6 +81,7 @@ def build_site_configs_from_urls(
     *,
     brand: str,
     urls_dir: str | Path | None = None,
+    form_suite: str | None = None,
 ) -> dict[str, dict]:
     """
     Строит runtime-конфиг для прямого обхода URL.
@@ -92,7 +97,14 @@ def build_site_configs_from_urls(
             f"Доступно: {', '.join(available_providers())}"
         )
 
+    suite = normalize_form_suite(form_suite)
     source_urls = load_urls_for_brand(brand_key, urls_dir=urls_dir)
+    source_urls = filter_urls_for_form_suite(source_urls, suite)
+    if not source_urls:
+        raise ValueError(
+            f"Для бренда {brand_key!r} и form_suite={suite!r} не найдено URL. "
+            f"Проверьте urls/{URL_FILE_BY_BRAND[brand_key]} и allowlist формы."
+        )
     provider_sites = load_site_configs(provider=brand_key)
     form_overrides = load_brand_form_overrides(brand_key)
 
@@ -129,6 +141,7 @@ def build_site_configs_from_urls(
         cfg_copy["_provider"] = brand_key
         cfg_copy["_site_id"] = host_id
         cfg_copy["_source_mode"] = "url_file"
+        cfg_copy["_requested_form_suite"] = suite
         cfg_copy["_expected_form_types"] = build_expected_form_types(
             page_url=page_url,
             site_cfg=cfg_copy,
@@ -136,6 +149,11 @@ def build_site_configs_from_urls(
         )
         cfg_copy["_optional_expected_form_types"] = optional_expected_form_types(page_url)
         cfg_copy["_expect_connection_cards"] = expects_connection_card_trigger(page_url)
+
+        suite_expected_form_types = expected_form_types_for_suite(suite)
+        if suite_expected_form_types:
+            cfg_copy["_expected_form_types"] = suite_expected_form_types
+            cfg_copy["_expect_connection_cards"] = expects_connection_cards_for_suite(suite)
 
         built[page_url] = cfg_copy
 

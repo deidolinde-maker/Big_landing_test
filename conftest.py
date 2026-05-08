@@ -2,6 +2,7 @@ import os
 
 import pytest
 import allure
+from config.form_expectations import available_form_suites
 
 ADBLOCK_MVP_BLOCKLIST = (
     "doubleclick.net",
@@ -38,6 +39,16 @@ def pytest_addoption(parser):
         help=(
             "Бренд для запуска по внешнему списку URL из urls/<brand>.txt "
             "(например: mts, beeline, megafon, t2, rostelecom, domru, ttk)."
+        ),
+    )
+    parser.addoption(
+        "--form-suite",
+        action="store",
+        default="all",
+        choices=available_form_suites(),
+        help=(
+            "Форма для прогона в URL-режиме: all, profit, connection, "
+            "connection_cards, checkaddress, business, undecided, moving, express."
         ),
     )
     parser.addoption(

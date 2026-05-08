@@ -15,6 +15,29 @@ SUPPORTED_FORM_TYPES = {
     "express-connection",
 }
 
+FORM_SUITE_TO_FORM_TYPE: dict[str, str] = {
+    "profit": "profit",
+    "connection": "connection",
+    "connection_cards": "connection",
+    "checkaddress": "checkaddress",
+    "business": "business",
+    "undecided": "undecided",
+    "moving": "moving",
+    "express": "express-connection",
+}
+
+FORM_SUITE_CHOICES: tuple[str, ...] = (
+    "all",
+    "profit",
+    "connection",
+    "connection_cards",
+    "checkaddress",
+    "business",
+    "undecided",
+    "moving",
+    "express",
+)
+
 
 def canonicalize_url(url: str) -> str:
     line = (url or "").strip()
@@ -72,6 +95,65 @@ OVERRIDE_FILE_BY_BRAND: dict[str, str] = {
     "domru": "domru.json",
     "ttk": "ttk.json",
 }
+
+FORM_SUITE_TO_ALLOWLIST: dict[str, set[str]] = {
+    "profit": PROFIT_URL_ALLOWLIST,
+    "connection": CONNECTION_URL_ALLOWLIST,
+    "connection_cards": CONNECTION_CARD_URL_ALLOWLIST,
+    "checkaddress": CHECKADDRESS_URL_ALLOWLIST,
+    "business": BUSINESS_URL_ALLOWLIST,
+    "undecided": UNDECIDED_URL_ALLOWLIST,
+    "moving": MOVING_URL_ALLOWLIST,
+    "express": EXPRESS_URL_ALLOWLIST,
+}
+
+
+def normalize_form_suite(value: str | None) -> str:
+    suite = (value or "all").strip().lower().replace("-", "_")
+    aliases = {
+        "connect_cards": "connection_cards",
+        "connection_card": "connection_cards",
+        "express_connection": "express",
+    }
+    suite = aliases.get(suite, suite)
+
+    if not suite:
+        suite = "all"
+    if suite not in FORM_SUITE_CHOICES:
+        allowed = ", ".join(FORM_SUITE_CHOICES)
+        raise ValueError(f"Неизвестный form_suite={value!r}. Доступно: {allowed}")
+    return suite
+
+
+def available_form_suites() -> list[str]:
+    return list(FORM_SUITE_CHOICES)
+
+
+def expected_form_types_for_suite(form_suite: str) -> list[str]:
+    suite = normalize_form_suite(form_suite)
+    if suite == "all":
+        return []
+    return [FORM_SUITE_TO_FORM_TYPE[suite]]
+
+
+def expects_connection_cards_for_suite(form_suite: str) -> bool:
+    return normalize_form_suite(form_suite) == "connection_cards"
+
+
+def is_url_in_form_suite(page_url: str, form_suite: str) -> bool:
+    suite = normalize_form_suite(form_suite)
+    if suite == "all":
+        return True
+
+    allowlist = FORM_SUITE_TO_ALLOWLIST.get(suite) or set()
+    return _is_allowlisted(canonicalize_url(page_url), allowlist)
+
+
+def filter_urls_for_form_suite(urls: list[str], form_suite: str) -> list[str]:
+    suite = normalize_form_suite(form_suite)
+    if suite == "all":
+        return list(urls)
+    return [url for url in urls if is_url_in_form_suite(url, suite)]
 
 
 def _is_allowlisted(current_url: str, allowlist: set[str]) -> bool:

@@ -686,17 +686,23 @@ def pytest_generate_tests(metafunc):
     """Параметризует фикстуру site_cfg — один прогон на каждый сайт."""
     if "site_cfg" in metafunc.fixturenames:
         url_brand_arg = metafunc.config.getoption("--url-brand", default=None)
+        form_suite_arg = metafunc.config.getoption("--form-suite", default="all")
         provider_arg = metafunc.config.getoption("--provider", default=None)
         site_arg = metafunc.config.getoption("--site", default=None)
         service_mode = normalize_service_mode(
             metafunc.config.getoption("--service-mode", default=SERVICE_MODE_ALL)
         )
         url_brand = (url_brand_arg or "").strip().lower()
+        form_suite = (form_suite_arg or "all").strip().lower()
 
         if url_brand and (provider_arg or site_arg):
             raise pytest.UsageError(
                 "--url-brand нельзя комбинировать с --provider/--site. "
                 "Используйте либо URL-режим, либо provider-режим."
+            )
+        if not url_brand and form_suite != "all":
+            raise pytest.UsageError(
+                "--form-suite поддерживается только вместе с --url-brand."
             )
 
         try:
@@ -707,7 +713,10 @@ def pytest_generate_tests(metafunc):
                         f"Доступно: {', '.join(available_url_brands())}"
                     )
                 selected_items = list(
-                    build_site_configs_from_urls(brand=url_brand).items()
+                    build_site_configs_from_urls(
+                        brand=url_brand,
+                        form_suite=form_suite,
+                    ).items()
                 )
             else:
                 selected_items = list(
@@ -722,7 +731,12 @@ def pytest_generate_tests(metafunc):
             cfg_copy = dict(cfg)
             cfg_copy["_service_mode"] = service_mode
             configs.append(cfg_copy)
-            ids.append(site_id if service_mode == SERVICE_MODE_ALL else f"{site_id}[{service_mode}]")
+            id_parts: list[str] = [site_id]
+            if service_mode != SERVICE_MODE_ALL:
+                id_parts.append(service_mode)
+            if url_brand and form_suite != "all":
+                id_parts.append(f"form:{form_suite}")
+            ids.append(id_parts[0] + "".join(f"[{part}]" for part in id_parts[1:]))
 
         metafunc.parametrize("site_cfg", configs, ids=ids)
 
@@ -3398,6 +3412,10 @@ def test_site(
     )
     allure.dynamic.label("suite", "Формы провайдеров")
     allure.dynamic.label("subSuite", f"service-mode: {service_mode}")
+    requested_form_suite = str(site_cfg.get("_requested_form_suite") or "all").strip().lower()
+    if requested_form_suite != "all":
+        allure.dynamic.label("parentSuite", f"form-suite: {requested_form_suite}")
+        allure.dynamic.parameter("form_suite", requested_form_suite)
     allure.dynamic.parameter("browser", browser_name)
     allure.dynamic.parameter("blocking_profile", blocking_profile)
     allure.dynamic.parameter("execution_profile", execution_profile)
