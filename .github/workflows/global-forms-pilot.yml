@@ -54,6 +54,22 @@ on:
           - "2"
           - "3"
           - "4"
+      url_shard_total:
+        description: "Деление URL на части (1 = без деления, 2 = запуск половины)"
+        required: true
+        default: "1"
+        type: choice
+        options:
+          - "1"
+          - "2"
+      url_shard_index:
+        description: "Какую часть запускать (используется при url_shard_total=2)"
+        required: true
+        default: "1"
+        type: choice
+        options:
+          - "1"
+          - "2"
       run_chromium:
         description: "Запустить Chromium"
         required: true
@@ -83,6 +99,8 @@ jobs:
         env:
           PROVIDER_SCOPE: ${{ inputs.provider_scope }}
           FORM_SUITE: ${{ inputs.form_suite }}
+          URL_SHARD_INDEX: ${{ inputs.url_shard_index }}
+          URL_SHARD_TOTAL: ${{ inputs.url_shard_total }}
         run: |
           python - <<'PY'
           import json
@@ -102,6 +120,13 @@ jobs:
 
           provider_scope = (os.getenv("PROVIDER_SCOPE") or "big_two").strip()
           form_suite = (os.getenv("FORM_SUITE") or "all").strip()
+          url_shard_index = int((os.getenv("URL_SHARD_INDEX") or "1").strip())
+          url_shard_total = int((os.getenv("URL_SHARD_TOTAL") or "1").strip())
+
+          if url_shard_total < 1:
+              raise SystemExit("url_shard_total должен быть >= 1")
+          if url_shard_index < 1 or url_shard_index > url_shard_total:
+              raise SystemExit("url_shard_index должен быть в диапазоне [1..url_shard_total]")
 
           providers_by_scope = {
               "big_two": ["mts", "beeline"],
@@ -133,13 +158,18 @@ jobs:
                   )
           else:
               providers = providers_by_scope.get(provider_scope, [provider_scope])
+              shard_suffix = (
+                  f"-{url_shard_index}of{url_shard_total}"
+                  if url_shard_total > 1
+                  else ""
+              )
               matrix = [
                   {
                       "brand": provider,
-                      "brand_label": provider,
+                      "brand_label": f"{provider}{shard_suffix}",
                       "form_suite": suite,
-                      "url_shard_index": 1,
-                      "url_shard_total": 1,
+                      "url_shard_index": url_shard_index,
+                      "url_shard_total": url_shard_total,
                   }
                   for suite in suites
                   for provider in providers
