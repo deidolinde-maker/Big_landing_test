@@ -492,7 +492,7 @@ POPUP_BUTTON_CLASSES = {
     "checkaddress":       ".checkaddress_address_button",
     "undecided":          ".checkaddress-undecided",
     "moving":             ".moving_address_button",
-    "profit":             ".profit_address_button",
+    "profit":             ".button-lead-catcher.profit_address_button, button.profit_address_button, a.profit_address_button, .profit_address_button",
     "express-connection": ".express-connection_address_button",
     "business":           ".business_no_address_button",
 }
@@ -2121,6 +2121,7 @@ def collect_popup_buttons(
     *,
     allowed_form_hints: set[str] | None = None,
     include_generic_buttons: bool = True,
+    dedupe_css_by_text: bool = True,
 ) -> list:
     """
     Сбор триггеров попапов.
@@ -2189,18 +2190,21 @@ def collect_popup_buttons(
                 global_idx = btn.evaluate(
                     "el => Array.from(document.querySelectorAll('button')).indexOf(el)"
                 )
-                if global_idx in seen_idx:
+                if isinstance(global_idx, int) and global_idx >= 0 and global_idx in seen_idx:
                     continue
                 text = (btn.inner_text() or "").strip().lower()
-                text_key = (effective_form_hint, text)
-                current_count = text_counters.get(text_key, 0)
-                if current_count >= POPUP_MAX_BUTTONS_PER_TEXT:
-                    print(
-                        f"  [COLLECT] SKIP duplicate text '{text}' ({effective_form_hint}) "
-                        f"(limit={POPUP_MAX_BUTTONS_PER_TEXT})"
-                    )
-                    continue
-                seen_idx.add(global_idx)
+                if dedupe_css_by_text:
+                    text_key = (effective_form_hint, text)
+                    current_count = text_counters.get(text_key, 0)
+                    if current_count >= POPUP_MAX_BUTTONS_PER_TEXT:
+                        print(
+                            f"  [COLLECT] SKIP duplicate text '{text}' ({effective_form_hint}) "
+                            f"(limit={POPUP_MAX_BUTTONS_PER_TEXT})"
+                        )
+                        continue
+                    text_counters[text_key] = current_count + 1
+                if isinstance(global_idx, int) and global_idx >= 0:
+                    seen_idx.add(global_idx)
                 result.append(
                     {
                         "index": global_idx,
@@ -2210,7 +2214,6 @@ def collect_popup_buttons(
                         "trigger_kind": trigger_kind,
                     }
                 )
-                text_counters[text_key] = current_count + 1
                 print(f"  [COLLECT] #{len(result)} index={global_idx} "
                       f"'{text}' ({effective_form_hint})")
             except Exception:
@@ -2776,6 +2779,23 @@ def process_all_popups(page: Page, base_url: str,
         auto_success, auto_failed, auto_first_fail, _auto_tested = 0, 0, None, False
         print("[AUTO-PROFIT] Пропуск: profit не входит в expected_form_types")
 
+    pretested_form_types: set[str] = set()
+    pretested_trigger_kinds: set[str] = set()
+    if _auto_tested:
+        pretested_form_types.add("profit")
+        pretested_trigger_kinds.add("auto_profit")
+
+    # Если в form-suite режиме целевая форма — только profit, и auto-profit уже
+    # успешно отработал, считаем цель выполненной и не тратим время на доп.клики.
+    if (
+        target_form_mode
+        and expected_form_types == {"profit"}
+        and auto_success > 0
+        and auto_failed == 0
+    ):
+        print("[POPUP] AUTO-PROFIT успешно проверен, цикл кнопок пропущен")
+        return auto_success, auto_failed, auto_first_fail, pretested_form_types, pretested_trigger_kinds
+
     # После auto-profit возвращаемся на базовый URL, чтобы сбор кнопок шёл
     # с основной страницы, даже если auto-submit привёл на /thanks.
     nav_ok, nav_critical, nav_reason = safe_goto(page, base_url)
@@ -2791,6 +2811,7 @@ def process_all_popups(page: Page, base_url: str,
         page,
         allowed_form_hints=expected_form_types if target_form_mode else None,
         include_generic_buttons=not target_form_mode,
+        dedupe_css_by_text=not target_form_mode,
     )
     if target_form_mode and not buttons:
         print("[POPUP] CSS-триггеры целевой формы не найдены, fallback на generic-кнопки")
@@ -2798,6 +2819,7 @@ def process_all_popups(page: Page, base_url: str,
             page,
             allowed_form_hints=expected_form_types,
             include_generic_buttons=True,
+            dedupe_css_by_text=False,
         )
     if auto_success > 0 and buttons:
         before = len(buttons)
@@ -2808,7 +2830,7 @@ def process_all_popups(page: Page, base_url: str,
 
     if not buttons:
         print("[POPUP] Кнопки не найдены — пропускаем")
-        return auto_success, auto_failed, auto_first_fail, set(), set()
+        return auto_success, auto_failed, auto_first_fail, pretested_form_types, pretested_trigger_kinds
 
     if expect_connection_cards:
         card_buttons = [b for b in buttons if b.get("trigger_kind") == "connection_card"]
@@ -2854,6 +2876,8 @@ def process_all_popups(page: Page, base_url: str,
     total_success = auto_success + success
     total_failed = auto_failed + failed
     total_first_fail = auto_first_fail if auto_first_fail else first_fail
+    tested_types |= pretested_form_types
+    tested_trigger_kinds |= pretested_trigger_kinds
     return total_success, total_failed, total_first_fail, tested_types, tested_trigger_kinds
 
 
