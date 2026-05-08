@@ -66,27 +66,6 @@ ERROR_STEP_NAMES = {
     "city_no_redirect": "Изменить город в попапе заявки",
 }
 
-LAST_FILL_FORM_ERROR = ""
-
-
-def _set_last_fill_form_error(message: str):
-    global LAST_FILL_FORM_ERROR
-    LAST_FILL_FORM_ERROR = (message or "").strip()
-
-
-def _pop_last_fill_form_error() -> str:
-    global LAST_FILL_FORM_ERROR
-    value = LAST_FILL_FORM_ERROR
-    LAST_FILL_FORM_ERROR = ""
-    return value
-
-
-def _form_not_filled_extra(base_extra: str) -> str:
-    detail = _pop_last_fill_form_error()
-    if detail:
-        return f"{base_extra} | {detail}"
-    return base_extra
-
 
 def _now_msk_str() -> str:
     try:
@@ -1453,12 +1432,7 @@ def verify_thanks_close_and_return(
 # Подсказки
 # ---------------------------------------------------------------------------
 
-def choose_first_suggestion(
-    page: Page,
-    timeout_ms: int = SUGGEST_TIMEOUT_MS,
-    field=None,
-    allow_keyboard_fallback: bool = True,
-) -> bool:
+def choose_first_suggestion(page: Page, timeout_ms: int = SUGGEST_TIMEOUT_MS, field=None) -> bool:
     poll_ms = 150
     elapsed = 0
     while elapsed < timeout_ms:
@@ -1476,10 +1450,6 @@ def choose_first_suggestion(
                     pass
         page.wait_for_timeout(poll_ms)
         elapsed += poll_ms
-
-    print("  [SUGGEST] No visible suggestions within timeout")
-    if not allow_keyboard_fallback:
-        return False
 
     print("  [SUGGEST FALLBACK] ArrowDown+Enter")
     try:
@@ -1799,7 +1769,6 @@ def _stabilize_form_before_retry(page: Page, container, form_type: str) -> str:
 def fill_form(page: Page, container, form_type: str,
               has_name_field: bool = False,
               service_place_value: str | None = None) -> bool:
-    _set_last_fill_form_error("")
     cfg        = FORM_CONFIGS[form_type]
     no_house   = cfg.get("no_house", False)
     no_suggest = cfg.get("no_suggest", False)
@@ -1812,7 +1781,6 @@ def fill_form(page: Page, container, form_type: str,
         street_local = container.locator(cfg["street"]).first
         if street_local.count() == 0 or not street_local.is_visible():
             print(f"  [FORM] Address field not found ({cfg['street']})")
-            _set_last_fill_form_error(f"поле улицы не найдено ({cfg['street']})")
             return False
 
         street_local.scroll_into_view_if_needed()
@@ -1899,15 +1867,11 @@ def fill_form(page: Page, container, form_type: str,
         house_sel = cfg.get("house")
         if house_sel:
             house_ready = False
-            house_candidates = ["1", "2", "7"]
 
             for house_attempt in range(1, 3):
                 house = container.locator(house_sel).first
                 if house.count() == 0 or not house.is_visible():
                     print(f"  [FORM] House field not found/visible ({house_sel}) | attempt {house_attempt}/2")
-                    _set_last_fill_form_error(
-                        f"поле дома не найдено/невидимо ({house_sel}), attempt {house_attempt}/2"
-                    )
                 else:
                     print(f"  [FORM] Waiting house field enable... attempt {house_attempt}/2")
                     try:
@@ -1915,41 +1879,18 @@ def fill_form(page: Page, container, form_type: str,
                             page, HOUSE_ENABLE_TIMEOUT_MS, FIREFOX_HOUSE_ENABLE_TIMEOUT_MS
                         )
                         expect(house).to_be_enabled(timeout=house_enable_timeout)
+                        house.scroll_into_view_if_needed()
+                        house.click(force=True)
+                        house.fill("1")
+                        print("  [FORM] House entered, waiting suggestion...")
                         suggest_timeout = browser_timeout(
                             page, SUGGEST_TIMEOUT_MS, FIREFOX_SUGGEST_TIMEOUT_MS
                         )
-                        failed_values = []
-                        for house_value in house_candidates:
-                            house.scroll_into_view_if_needed()
-                            house.click(force=True)
-                            try:
-                                house.fill("")
-                            except Exception:
-                                pass
-                            house.fill(house_value)
-                            print(f"  [FORM] House '{house_value}' entered, waiting suggestion...")
-                            suggest_ok = choose_first_suggestion(
-                                page,
-                                timeout_ms=suggest_timeout,
-                                field=house,
-                                allow_keyboard_fallback=False,
-                            )
-                            if suggest_ok:
-                                house_ready = True
-                                break
-                            failed_values.append(house_value)
-
-                        if house_ready:
-                            break
-
-                        failed_text = ", ".join(failed_values) if failed_values else "(none)"
-                        _set_last_fill_form_error(
-                            f"сайджест дома не появился при вводе: {failed_text}"
-                        )
-                        print(f"  [FORM] ❌ House suggest not shown for values: {failed_text}")
+                        choose_first_suggestion(page, timeout_ms=suggest_timeout, field=house)
+                        house_ready = True
+                        break
                     except Exception as e:
                         print(f"  [FORM] House field did not activate: {e}")
-                        _set_last_fill_form_error(f"поле дома не активировалось: {e}")
                         if try_mobile_house_tap_and_fill(house):
                             house_ready = True
                             break
@@ -1989,7 +1930,6 @@ def fill_form(page: Page, container, form_type: str,
     phone = container.locator(cfg["phone"]).first
     if phone.count() == 0 or not phone.is_visible():
         print(f"  [FORM] ❌ Телефон не найден ({cfg['phone']})")
-        _set_last_fill_form_error(f"поле телефона не найдено ({cfg['phone']})")
         return False
 
     phone.scroll_into_view_if_needed()
@@ -2400,7 +2340,7 @@ def process_auto_profit_popup(
 
     print("  [AUTO-PROFIT] Попап появился автоматически, запускаем полный submit-сценарий")
     if not fill_form(page, container, form_type, has_name_field=has_name_field):
-        log_error("form_not_filled", page, site_label, extra=_form_not_filled_extra("auto profit popup"))
+        log_error("form_not_filled", page, site_label, extra="auto profit popup")
         return 0, 1, "AUTO-PROFIT code=form_not_filled"[:220], True
 
     submit = find_submit(container, form_type)
@@ -2462,12 +2402,7 @@ def process_unexpected_auto_profit_popup(
 
     print(f"  [AUTO-PROFIT] Неожиданное появление во время '{context}' — обрабатываем")
     if not fill_form(page, container, form_type, has_name_field=has_name_field):
-        log_error(
-            "form_not_filled",
-            page,
-            site_label,
-            extra=_form_not_filled_extra(f"auto profit during {context}"),
-        )
+        log_error("form_not_filled", page, site_label, extra=f"auto profit during {context}")
         return True, False, "form_not_filled"
 
     submit = find_submit(container, form_type)
@@ -2740,16 +2675,14 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
                     ):
                         pass
                     else:
-                        details = _form_not_filled_extra(f"service={service_label}")
-                        log_error("form_not_filled", page, site_label, extra=details)
-                        register_failure("form_not_filled", details)
+                        log_error("form_not_filled", page, site_label, extra=f"service={service_label}")
+                        register_failure("form_not_filled", f"service={service_label}")
                         continue
                 elif recover_status == "failed":
                     continue
                 else:
-                    details = _form_not_filled_extra(f"service={service_label}")
-                    log_error("form_not_filled", page, site_label, extra=details)
-                    register_failure("form_not_filled", details)
+                    log_error("form_not_filled", page, site_label, extra=f"service={service_label}")
+                    register_failure("form_not_filled", f"service={service_label}")
                     continue
 
             submit = find_submit(container, form_type)
