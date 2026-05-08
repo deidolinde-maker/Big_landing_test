@@ -151,6 +151,7 @@ jobs:
         if: ${{ inputs.run_chromium }}
         run: |
           python -m pytest big_landing_code.py \
+            -rs \
             --url-brand=${{ matrix.brand }} \
             --form-suite=${{ matrix.form_suite }} \
             --service-mode=${{ inputs.service_mode }} \
@@ -163,6 +164,7 @@ jobs:
         if: ${{ inputs.run_firefox }}
         run: |
           python -m pytest big_landing_code.py \
+            -rs \
             --url-brand=${{ matrix.brand }} \
             --form-suite=${{ matrix.form_suite }} \
             --service-mode=${{ inputs.service_mode }} \
@@ -175,6 +177,7 @@ jobs:
         if: ${{ inputs.run_webkit }}
         run: |
           python -m pytest big_landing_code.py \
+            -rs \
             --url-brand=${{ matrix.brand }} \
             --form-suite=${{ matrix.form_suite }} \
             --service-mode=${{ inputs.service_mode }} \
