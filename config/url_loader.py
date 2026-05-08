@@ -82,6 +82,8 @@ def build_site_configs_from_urls(
     brand: str,
     urls_dir: str | Path | None = None,
     form_suite: str | None = None,
+    url_shard_index: int = 1,
+    url_shard_total: int = 1,
 ) -> dict[str, dict]:
     """
     Строит runtime-конфиг для прямого обхода URL.
@@ -100,10 +102,16 @@ def build_site_configs_from_urls(
     suite = normalize_form_suite(form_suite)
     source_urls = load_urls_for_brand(brand_key, urls_dir=urls_dir)
     source_urls = filter_urls_for_form_suite(source_urls, suite)
+    if url_shard_total > 1:
+        total = len(source_urls)
+        start = (total * (url_shard_index - 1)) // url_shard_total
+        end = (total * url_shard_index) // url_shard_total
+        source_urls = source_urls[start:end]
     if not source_urls:
         raise ValueError(
             f"Для бренда {brand_key!r} и form_suite={suite!r} не найдено URL. "
-            f"Проверьте urls/{URL_FILE_BY_BRAND[brand_key]} и allowlist формы."
+            f"Проверьте urls/{URL_FILE_BY_BRAND[brand_key]} и allowlist формы. "
+            f"(shard {url_shard_index}/{url_shard_total})"
         )
     provider_sites = load_site_configs(provider=brand_key)
     form_overrides = load_brand_form_overrides(brand_key)

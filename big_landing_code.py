@@ -689,6 +689,8 @@ def pytest_generate_tests(metafunc):
         form_suite_arg = metafunc.config.getoption("--form-suite", default="all")
         provider_arg = metafunc.config.getoption("--provider", default=None)
         site_arg = metafunc.config.getoption("--site", default=None)
+        url_shard_index = int(metafunc.config.getoption("--url-shard-index", default=1) or 1)
+        url_shard_total = int(metafunc.config.getoption("--url-shard-total", default=1) or 1)
         service_mode = normalize_service_mode(
             metafunc.config.getoption("--service-mode", default=SERVICE_MODE_ALL)
         )
@@ -704,6 +706,15 @@ def pytest_generate_tests(metafunc):
             raise pytest.UsageError(
                 "--form-suite поддерживается только вместе с --url-brand."
             )
+        if url_shard_total < 1 or url_shard_index < 1 or url_shard_index > url_shard_total:
+            raise pytest.UsageError(
+                "--url-shard-index/--url-shard-total должны быть >=1, "
+                "а index не должен превышать total."
+            )
+        if not url_brand and (url_shard_index != 1 or url_shard_total != 1):
+            raise pytest.UsageError(
+                "--url-shard-index/--url-shard-total поддерживаются только вместе с --url-brand."
+            )
 
         try:
             if url_brand:
@@ -716,6 +727,8 @@ def pytest_generate_tests(metafunc):
                     build_site_configs_from_urls(
                         brand=url_brand,
                         form_suite=form_suite,
+                        url_shard_index=url_shard_index,
+                        url_shard_total=url_shard_total,
                     ).items()
                 )
             else:

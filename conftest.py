@@ -52,6 +52,26 @@ def pytest_addoption(parser):
         ),
     )
     parser.addoption(
+        "--url-shard-index",
+        action="store",
+        type=int,
+        default=1,
+        help=(
+            "Номер шарда URL (начиная с 1) для --url-brand. "
+            "Используется вместе с --url-shard-total."
+        ),
+    )
+    parser.addoption(
+        "--url-shard-total",
+        action="store",
+        type=int,
+        default=1,
+        help=(
+            "Общее число шардов URL для --url-brand. "
+            "При значении >1 список URL делится на части."
+        ),
+    )
+    parser.addoption(
         "--provider",
         action="store",
         default=None,

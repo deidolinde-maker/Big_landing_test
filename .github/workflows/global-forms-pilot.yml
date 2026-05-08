@@ -12,6 +12,7 @@ on:
           - big_two
           - small
           - all
+          - beeline_split
           - mts
           - beeline
           - megafon
@@ -107,10 +108,42 @@ jobs:
               "small": ["megafon", "t2", "rostelecom", "domru", "ttk"],
               "all": all_providers,
           }
-          providers = providers_by_scope.get(provider_scope, [provider_scope])
           suites = suites_all if form_suite == "all" else [form_suite]
 
-          matrix = [{"brand": provider, "form_suite": suite} for suite in suites for provider in providers]
+          matrix = []
+          if provider_scope == "beeline_split":
+              for suite in suites:
+                  matrix.append(
+                      {
+                          "brand": "beeline",
+                          "brand_label": "beeline-1of2",
+                          "form_suite": suite,
+                          "url_shard_index": 1,
+                          "url_shard_total": 2,
+                      }
+                  )
+                  matrix.append(
+                      {
+                          "brand": "beeline",
+                          "brand_label": "beeline-2of2",
+                          "form_suite": suite,
+                          "url_shard_index": 2,
+                          "url_shard_total": 2,
+                      }
+                  )
+          else:
+              providers = providers_by_scope.get(provider_scope, [provider_scope])
+              matrix = [
+                  {
+                      "brand": provider,
+                      "brand_label": provider,
+                      "form_suite": suite,
+                      "url_shard_index": 1,
+                      "url_shard_total": 1,
+                  }
+                  for suite in suites
+                  for provider in providers
+              ]
           print("Matrix size:", len(matrix))
           print(json.dumps(matrix, ensure_ascii=False))
 
@@ -119,7 +152,7 @@ jobs:
           PY
 
   pilot:
-    name: Pilot • ${{ matrix.brand }} • ${{ matrix.form_suite }}
+    name: Pilot • ${{ matrix.brand_label }} • ${{ matrix.form_suite }}
     needs: build_matrix
     runs-on: ubuntu-latest
     strategy:
@@ -154,6 +187,8 @@ jobs:
             -rs \
             --url-brand=${{ matrix.brand }} \
             --form-suite=${{ matrix.form_suite }} \
+            --url-shard-index=${{ matrix.url_shard_index }} \
+            --url-shard-total=${{ matrix.url_shard_total }} \
             --service-mode=${{ inputs.service_mode }} \
             --browser=chromium \
             --execution-profile=desktop \
@@ -167,6 +202,8 @@ jobs:
             -rs \
             --url-brand=${{ matrix.brand }} \
             --form-suite=${{ matrix.form_suite }} \
+            --url-shard-index=${{ matrix.url_shard_index }} \
+            --url-shard-total=${{ matrix.url_shard_total }} \
             --service-mode=${{ inputs.service_mode }} \
             --browser=firefox \
             --execution-profile=desktop \
@@ -180,6 +217,8 @@ jobs:
             -rs \
             --url-brand=${{ matrix.brand }} \
             --form-suite=${{ matrix.form_suite }} \
+            --url-shard-index=${{ matrix.url_shard_index }} \
+            --url-shard-total=${{ matrix.url_shard_total }} \
             --service-mode=${{ inputs.service_mode }} \
             --browser=webkit \
             --execution-profile=desktop \
@@ -190,6 +229,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: allure-results-${{ matrix.brand }}-${{ matrix.form_suite }}
+          name: allure-results-${{ matrix.brand_label }}-${{ matrix.form_suite }}
           path: allure-results
           if-no-files-found: ignore
