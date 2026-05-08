@@ -2104,8 +2104,17 @@ def wait_for_popup_with_fields(page: Page, timeout_ms: int = 10_000,
 # Сбор кнопок
 # ---------------------------------------------------------------------------
 
-def collect_popup_buttons(page: Page) -> list:
-    """Все кнопки попапов: по ключевым словам + по CSS-классам из POPUP_BUTTON_CLASSES."""
+def collect_popup_buttons(
+    page: Page,
+    *,
+    allowed_form_hints: set[str] | None = None,
+    include_generic_buttons: bool = True,
+) -> list:
+    """
+    Сбор триггеров попапов.
+    По умолчанию: generic-кнопки + кнопки по CSS-классам.
+    Для form-suite режима можно ограничить набор form_hint и отключить generic.
+    """
     all_btns = page.locator("button")
     total    = all_btns.count()
     result   = []
@@ -2115,43 +2124,48 @@ def collect_popup_buttons(page: Page) -> list:
     print(f"\n[COLLECT] Кнопок на странице: {total}")
 
     # По ключевым словам (connection и др.)
-    for i in range(total):
-        btn = all_btns.nth(i)
-        try:
-            if not btn.is_visible() or not btn.is_enabled():
-                continue
-            text = (btn.inner_text() or "").strip().lower()
-            if not any(kw in text for kw in POPUP_OPEN_KEYWORDS):
-                continue
-            if any(kw in text for kw in POPUP_SKIP_KEYWORDS):
-                continue
-            text_key = ("generic", text)
-            current_count = text_counters.get(text_key, 0)
-            if current_count >= POPUP_MAX_BUTTONS_PER_TEXT:
-                print(
-                    f"  [COLLECT] SKIP duplicate text '{text}' "
-                    f"(limit={POPUP_MAX_BUTTONS_PER_TEXT})"
+    if include_generic_buttons:
+        for i in range(total):
+            btn = all_btns.nth(i)
+            try:
+                if not btn.is_visible() or not btn.is_enabled():
+                    continue
+                text = (btn.inner_text() or "").strip().lower()
+                if not any(kw in text for kw in POPUP_OPEN_KEYWORDS):
+                    continue
+                if any(kw in text for kw in POPUP_SKIP_KEYWORDS):
+                    continue
+                text_key = ("generic", text)
+                current_count = text_counters.get(text_key, 0)
+                if current_count >= POPUP_MAX_BUTTONS_PER_TEXT:
+                    print(
+                        f"  [COLLECT] SKIP duplicate text '{text}' "
+                        f"(limit={POPUP_MAX_BUTTONS_PER_TEXT})"
+                    )
+                    continue
+                seen_idx.add(i)
+                result.append(
+                    {
+                        "index": i,
+                        "text": text,
+                        "form_hint": None,
+                        "css": None,
+                        "trigger_kind": "generic",
+                    }
                 )
-                continue
-            seen_idx.add(i)
-            result.append(
-                {
-                    "index": i,
-                    "text": text,
-                    "form_hint": None,
-                    "css": None,
-                    "trigger_kind": "generic",
-                }
-            )
-            text_counters[text_key] = current_count + 1
-            print(f"  [COLLECT] #{len(result)} index={i} '{text}'")
-        except Exception:
-            pass
+                text_counters[text_key] = current_count + 1
+                print(f"  [COLLECT] #{len(result)} index={i} '{text}'")
+            except Exception:
+                pass
 
     # По CSS-классам (profit, express-connection)
     for form_hint, css_class in POPUP_BUTTON_CLASSES.items():
         if form_hint == "business":
             continue   # бизнес собирается отдельно
+        if allowed_form_hints is not None:
+            effective_hint_for_filter = "connection" if form_hint == "connection_card" else form_hint
+            if effective_hint_for_filter not in allowed_form_hints:
+                continue
         btns = page.locator(css_class)
         effective_form_hint = "connection" if form_hint == "connection_card" else form_hint
         trigger_kind = "connection_card" if form_hint == "connection_card" else form_hint
@@ -2396,7 +2410,8 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
                      has_name_field: bool = False,
                      service_mode: str = SERVICE_MODE_ALL,
                      allow_root_return_after_thanks: bool = False,
-                     expected_form_types: set[str] | None = None) -> tuple[int, int, str | None, set[str], set[str]]:
+                     expected_form_types: set[str] | None = None,
+                     stop_after_first_expected_form: bool = False) -> tuple[int, int, str | None, set[str], set[str]]:
     success    = 0
     failed     = 0
     first_fail = None
@@ -2407,9 +2422,24 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
     no_confirmation_by_text = {}
 
     for num, entry in enumerate(buttons, 1):
+        if (
+            stop_after_first_expected_form
+            and expected_form_types
+            and tested_form_types.intersection(expected_form_types)
+        ):
+            print(f"  [{label}] Целевая форма уже проверена, останавливаем цикл кнопок")
+            break
+
         text      = entry.get("text", "")
         form_hint = entry.get("form_hint")
         trigger_kind = str(entry.get("trigger_kind") or "generic")
+        if (
+            expected_form_types
+            and form_hint
+            and form_hint not in expected_form_types
+        ):
+            print(f"  [{label}] Пропуск кнопки hint='{form_hint}': не в expected_form_types")
+            continue
         text_key = (form_hint or "generic", (text or "").strip().lower())
         if no_confirmation_by_text.get(text_key, 0) >= POPUP_REPEAT_NO_CONFIRMATION_SKIP_THRESHOLD:
             print(
@@ -2716,6 +2746,11 @@ def process_all_popups(page: Page, base_url: str,
                         allow_root_return_after_thanks: bool = False,
                         expected_form_types: set[str] | None = None,
                         expect_connection_cards: bool = False) -> tuple[int, int, str | None, set[str], set[str]]:
+    target_form_mode = bool(expected_form_types) and len(expected_form_types) == 1
+    if target_form_mode:
+        target_text = ", ".join(sorted(expected_form_types or set()))
+        print(f"[POPUP] Target form mode: {target_text}")
+
     should_check_auto_profit = expected_form_types is None or "profit" in expected_form_types
     if should_check_auto_profit:
         auto_success, auto_failed, auto_first_fail, _auto_tested = process_auto_profit_popup(
@@ -2740,7 +2775,18 @@ def process_all_popups(page: Page, base_url: str,
             )
         log_error("navigation_failed", page, site_label, extra=f"after auto-profit | {nav_reason[:180]}")
 
-    buttons = collect_popup_buttons(page)
+    buttons = collect_popup_buttons(
+        page,
+        allowed_form_hints=expected_form_types if target_form_mode else None,
+        include_generic_buttons=not target_form_mode,
+    )
+    if target_form_mode and not buttons:
+        print("[POPUP] CSS-триггеры целевой формы не найдены, fallback на generic-кнопки")
+        buttons = collect_popup_buttons(
+            page,
+            allowed_form_hints=expected_form_types,
+            include_generic_buttons=True,
+        )
     if auto_success > 0 and buttons:
         before = len(buttons)
         buttons = [b for b in buttons if b.get("form_hint") != "profit"]
@@ -2791,6 +2837,7 @@ def process_all_popups(page: Page, base_url: str,
         service_mode=service_mode,
         allow_root_return_after_thanks=allow_root_return_after_thanks,
         expected_form_types=expected_form_types,
+        stop_after_first_expected_form=target_form_mode,
     )
     total_success = auto_success + success
     total_failed = auto_failed + failed
@@ -2819,6 +2866,7 @@ def process_business_popups(page: Page, base_url: str,
         has_name_field=has_name_field, service_mode=service_mode,
         allow_root_return_after_thanks=True,
         expected_form_types=expected_form_types,
+        stop_after_first_expected_form=bool(expected_form_types) and len(expected_form_types) == 1,
     )
 
 
