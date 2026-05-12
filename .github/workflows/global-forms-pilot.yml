@@ -9,6 +9,7 @@ on:
         default: "big_two"
         type: choice
         options:
+          - pre_release_chain
           - big_two
           - rtk_megafon
           - small_pool
@@ -98,6 +99,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.build.outputs.matrix }}
+      matrix_stage1: ${{ steps.build.outputs.matrix_stage1 }}
+      matrix_stage2: ${{ steps.build.outputs.matrix_stage2 }}
+      matrix_stage3: ${{ steps.build.outputs.matrix_stage3 }}
       effective_max_parallel: ${{ steps.build.outputs.effective_max_parallel }}
     steps:
       - name: Checkout
@@ -119,7 +123,7 @@ jobs:
           import os
           from config.url_loader import build_site_configs_from_urls
 
-          all_providers = ["mts", "beeline", "megafon", "t2", "rostelecom", "domru", "ttk"]
+          all_providers = ["mts", "beeline", "rostelecom", "megafon", "t2", "domru", "ttk"]
           suites_all = [
               "profit",
               "connection",
@@ -137,6 +141,9 @@ jobs:
           url_shard_total = int((os.getenv("URL_SHARD_TOTAL") or "1").strip())
           max_parallel = int((os.getenv("MAX_PARALLEL") or "2").strip())
           provider_sequence = (os.getenv("PROVIDER_SEQUENCE") or "false").strip().lower() == "true"
+          if provider_scope == "pre_release_chain":
+              # Для предрелизного сценария всегда запускаем последовательную цепочку брендов.
+              provider_sequence = True
 
           if provider_scope == "beeline_split":
               # Для auto-split режима шард задаётся внутри матрицы.
@@ -150,6 +157,7 @@ jobs:
                   raise SystemExit("url_shard_index должен быть в диапазоне [1..url_shard_total]")
 
           providers_by_scope = {
+              "pre_release_chain": all_providers,
               "big_two": ["mts", "beeline"],
               "rtk_megafon": ["rostelecom", "megafon"],
               "small_pool": ["t2", "domru", "ttk"],
@@ -268,6 +276,9 @@ jobs:
           effective_max_parallel = 1 if provider_sequence else max_parallel
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
               fh.write(f"matrix={json.dumps(matrix)}\n")
+              fh.write(f"matrix_stage1={json.dumps(matrix)}\n")
+              fh.write("matrix_stage2=[]\n")
+              fh.write("matrix_stage3=[]\n")
               fh.write(f"effective_max_parallel={effective_max_parallel}\n")
           PY
 
