@@ -10,7 +10,8 @@ on:
         type: choice
         options:
           - big_two
-          - small
+          - rtk_megafon
+          - small_pool
           - all
           - beeline_split
           - mts
@@ -146,7 +147,8 @@ jobs:
 
           providers_by_scope = {
               "big_two": ["mts", "beeline"],
-              "small": ["megafon", "t2", "rostelecom", "domru", "ttk"],
+              "rtk_megafon": ["rostelecom", "megafon"],
+              "small_pool": ["t2", "domru", "ttk"],
               "all": all_providers,
           }
           suites = suites_all if form_suite == "all" else [form_suite]
