@@ -3015,7 +3015,7 @@ def process_business_popups(page: Page, base_url: str,
                              expected_form_types: set[str] | None = None) -> tuple[int, int, str | None, set[str]]:
     if normalize_service_mode(service_mode) == SERVICE_MODE_VARIANTS:
         print("[BUSINESS] VARIANTS-режим: шаг /business пропущен")
-        return 0, 0, None
+        return 0, 0, None, set()
 
     buttons = collect_business_buttons(page)
     if not buttons:
@@ -3032,6 +3032,75 @@ def process_business_popups(page: Page, base_url: str,
         expected_form_types=expected_form_types,
         stop_after_first_expected_form=bool(expected_form_types) and len(expected_form_types) == 1,
     )
+
+
+def process_inline_connection_form(
+    page: Page,
+    base_url: str,
+    *,
+    has_name_field: bool = False,
+    allow_root_return_after_thanks: bool = False,
+) -> tuple[int, int, str | None, set[str]]:
+    """
+    Fallback для страниц, где connection-форма уже открыта в теле страницы
+    (без popup-триггера), например rtk-home.ru/.../podklyuchenie-interneta.
+    """
+    print("\n[INLINE-CONNECTION] Проверка inline-формы connection")
+    cfg = FORM_CONFIGS["connection"]
+    container = page.locator("section, form, div").filter(
+        has=page.locator(cfg["phone"])
+    ).first
+
+    try:
+        if container.count() == 0:
+            print("  [INLINE-CONNECTION] Форма не найдена")
+            return 0, 0, None, set()
+    except Exception:
+        print("  [INLINE-CONNECTION] Ошибка поиска формы")
+        return 0, 0, None, set()
+
+    filled = fill_form(page, container, "connection", has_name_field=has_name_field)
+    if not filled:
+        reason = "inline connection не заполнена (street/house/phone)"
+        print(f"  [INLINE-CONNECTION] ❌ {reason}")
+        return 0, 1, reason, {"connection"}
+
+    submit = find_submit(container, "connection")
+    if not submit:
+        reason = "кнопка отправки inline connection не найдена"
+        print(f"  [INLINE-CONNECTION] ❌ {reason}")
+        return 0, 1, reason, {"connection"}
+
+    if REALLY_SUBMIT:
+        return_url_before_submit = page.url or base_url
+        ok = submit_with_confirmation(
+            page, container, "connection",
+            timeout_ms=SUBMIT_CONFIRM_TIMEOUT_MS, attempts=2
+        )
+        if not ok:
+            reason = "подтверждение отправки inline connection не получено"
+            print(f"  [INLINE-CONNECTION] ❌ {reason}")
+            return 0, 1, reason, {"connection"}
+
+        thanks_ok, thanks_reason = verify_thanks_close_and_return(
+            page,
+            return_url_before_submit,
+            allow_root_return=allow_root_return_after_thanks,
+        )
+        if not thanks_ok:
+            reason = f"после inline submit не закрыт/не отработан thanks: {thanks_reason}"
+            print(f"  [INLINE-CONNECTION] ❌ {reason}")
+            return 0, 1, reason, {"connection"}
+
+        nav_ok, _, nav_reason = safe_goto(page, base_url)
+        if not nav_ok:
+            reason = f"после inline submit не удалось вернуться на {base_url}: {nav_reason}"
+            print(f"  [INLINE-CONNECTION] ❌ {reason}")
+            return 0, 1, reason, {"connection"}
+        close_overlays(page)
+
+    print("  [INLINE-CONNECTION] ✅ Успешно")
+    return 1, 0, None, {"connection"}
 
 
 # ---------------------------------------------------------------------------
@@ -3419,6 +3488,18 @@ def run_site_scenario(page: Page, cfg: dict):
             )
         except SiteUnavailableError as e:
             skip_site_due_unavailability(site_label, "2", "попапы главной", str(e), page)
+        if is_url_mode and "connection" in expected_popup_forms and "connection" not in tested_popup_forms:
+            inline_s, inline_f, inline_first_fail, inline_tested = process_inline_connection_form(
+                page,
+                base_url,
+                has_name_field=has_name_field,
+                allow_root_return_after_thanks=is_url_mode,
+            )
+            s += inline_s
+            f += inline_f
+            tested_popup_forms |= inline_tested
+            if first_fail is None and inline_first_fail:
+                first_fail = inline_first_fail[:220]
         if is_url_mode:
             missing_popup_forms = expected_popup_forms - tested_popup_forms
             missing_required_popup_forms = missing_popup_forms - optional_popup_forms
