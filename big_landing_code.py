@@ -1187,7 +1187,20 @@ def safe_goto(
             page.wait_for_timeout(1500)
 
     elapsed_ms = int((time.monotonic() - started_at) * 1000)
-    is_critical = elapsed_ms >= outage_threshold_ms
+    last_error_upper = (last_error or "").upper()
+    critical_nav_markers = (
+        "ERR_CERT_DATE_INVALID",
+        "ERR_CERT_AUTHORITY_INVALID",
+        "ERR_CERT_COMMON_NAME_INVALID",
+        "ERR_SSL_PROTOCOL_ERROR",
+        "ERR_CONNECTION_TIMED_OUT",
+        "ERR_CONNECTION_REFUSED",
+        "ERR_CONNECTION_CLOSED",
+        "ERR_CONNECTION_RESET",
+        "ERR_NAME_NOT_RESOLVED",
+    )
+    has_critical_nav_marker = any(marker in last_error_upper for marker in critical_nav_markers)
+    is_critical = elapsed_ms >= outage_threshold_ms or has_critical_nav_marker
     if is_critical:
         reason = f"timeout {elapsed_ms // 1000}с (>={outage_threshold_ms // 1000}с), last_error={last_error or 'n/a'}"
     else:
