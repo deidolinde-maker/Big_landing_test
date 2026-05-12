@@ -116,7 +116,6 @@ https://rtk-ru.online/connect
 https://rtk-ru.online/rostelecom-domashnij-internet-proverit-adres
 https://rtk-ru.online/perejti-so-svoim-nomerom
 https://rtk-ru.online/oborudovanie
-https://rtk-ru.online/business
 https://rtk-ru.online/wi-fi-internet
 https://moskva.rtk-ru.online
 https://perm.rtk-ru.online/solikamsk
@@ -151,12 +150,10 @@ https://rtk-home-internet.ru/thanks
 https://rtk-internet.online
 https://rtk-internet.online/moskva
 https://rtk-internet.online/thanks
-https://rtk-internet.online/business
 http://rtk-home.ru
 http://rtk-home.ru/moskva
 https://rtk-home.ru/podklyuchenie-interneta
 https://rtk-home.ru/moskva/podklyuchenie-interneta
-https://rtk-home.ru/business
 https://beeline-ru.online/
 "https://beeline-ru.online/yuzhno-sahalinsk
 "
