@@ -1835,6 +1835,41 @@ def fill_form(page: Page, container, form_type: str,
         choose_first_suggestion(page, timeout_ms=suggest_timeout, field=street_local)
         return True
 
+    def refill_house_value(house_field, house_value: str) -> str:
+        house_field.scroll_into_view_if_needed()
+        house_field.click(force=True)
+
+        # Некоторые формы не очищают input обычным fill(""),
+        # поэтому очищаем более агрессивно перед каждой попыткой.
+        for _ in range(2):
+            try:
+                house_field.press("Control+A")
+                house_field.press("Backspace")
+            except Exception:
+                pass
+            try:
+                house_field.fill("")
+            except Exception:
+                pass
+            page.wait_for_timeout(80)
+            try:
+                current = (house_field.input_value() or "").strip()
+            except Exception:
+                current = ""
+            if not current:
+                break
+
+        try:
+            house_field.press_sequentially(house_value, delay=35)
+        except Exception:
+            house_field.fill(house_value)
+
+        page.wait_for_timeout(120)
+        try:
+            return (house_field.input_value() or "").strip()
+        except Exception:
+            return ""
+
     def try_mobile_house_tap_and_fill(house_field) -> bool:
         if not is_mobile_execution_profile():
             return False
@@ -1925,15 +1960,10 @@ def fill_form(page: Page, container, form_type: str,
                             )
                             suggest_picked = False
                             for house_value in SOFT_HOUSE_RETRY_VALUES:
-                                house.scroll_into_view_if_needed()
-                                house.click(force=True)
-                                try:
-                                    house.fill("")
-                                except Exception:
-                                    pass
-                                house.fill(house_value)
+                                entered_house = refill_house_value(house, house_value)
                                 print(
-                                    f"  [FORM] House '{house_value}' entered, waiting visible suggestion..."
+                                    f"  [FORM] House target='{house_value}', actual='{entered_house}', "
+                                    "waiting visible suggestion..."
                                 )
                                 suggest_picked = choose_first_suggestion(
                                     page,
