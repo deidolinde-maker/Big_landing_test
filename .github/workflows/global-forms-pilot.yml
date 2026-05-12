@@ -100,6 +100,9 @@ jobs:
       matrix: ${{ steps.build.outputs.matrix }}
       effective_max_parallel: ${{ steps.build.outputs.effective_max_parallel }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Build provider x form suite matrix
         id: build
         shell: bash
@@ -114,6 +117,7 @@ jobs:
           python - <<'PY'
           import json
           import os
+          from config.url_loader import build_site_configs_from_urls
 
           all_providers = ["mts", "beeline", "megafon", "t2", "rostelecom", "domru", "ttk"]
           suites_all = [
@@ -153,41 +157,65 @@ jobs:
           }
           suites = suites_all if form_suite == "all" else [form_suite]
 
+          def has_urls_for_combo(brand: str, suite: str, shard_index: int, shard_total: int) -> bool:
+              try:
+                  cfg = build_site_configs_from_urls(
+                      brand=brand,
+                      form_suite=suite,
+                      url_shard_index=shard_index,
+                      url_shard_total=shard_total,
+                  )
+              except Exception as exc:
+                  print(
+                      f"SKIP combo brand={brand} suite={suite} shard={shard_index}/{shard_total}: {exc}"
+                  )
+                  return False
+              return bool(cfg)
+
           matrix = []
           if provider_scope == "beeline_split" and provider_sequence:
               for shard_idx in (1, 2):
+                  runnable_suites = [
+                      suite for suite in suites
+                      if has_urls_for_combo("beeline", suite, shard_idx, 2)
+                  ]
+                  if not runnable_suites:
+                      print(f"SKIP beeline shard={shard_idx}/2: no runnable suites")
+                      continue
                   matrix.append(
                       {
                           "brand": "beeline",
                           "brand_label": f"beeline-{shard_idx}of2",
                           "suite_label": form_suite,
-                          "suites_csv": ",".join(suites),
+                          "suites_csv": ",".join(runnable_suites),
                           "url_shard_index": shard_idx,
                           "url_shard_total": 2,
                       }
                   )
           elif provider_scope == "beeline_split":
               for suite in suites:
-                  matrix.append(
-                      {
-                          "brand": "beeline",
-                          "brand_label": "beeline-1of2",
-                          "suite_label": suite,
-                          "suites_csv": suite,
-                          "url_shard_index": 1,
-                          "url_shard_total": 2,
-                      }
-                  )
-                  matrix.append(
-                      {
-                          "brand": "beeline",
-                          "brand_label": "beeline-2of2",
-                          "suite_label": suite,
-                          "suites_csv": suite,
-                          "url_shard_index": 2,
-                          "url_shard_total": 2,
-                      }
-                  )
+                  if has_urls_for_combo("beeline", suite, 1, 2):
+                      matrix.append(
+                          {
+                              "brand": "beeline",
+                              "brand_label": "beeline-1of2",
+                              "suite_label": suite,
+                              "suites_csv": suite,
+                              "url_shard_index": 1,
+                              "url_shard_total": 2,
+                          }
+                      )
+                  if has_urls_for_combo("beeline", suite, 2, 2):
+                      matrix.append(
+                          {
+                              "brand": "beeline",
+                              "brand_label": "beeline-2of2",
+                              "suite_label": suite,
+                              "suites_csv": suite,
+                              "url_shard_index": 2,
+                              "url_shard_total": 2,
+                          }
+                      )
           else:
               providers = providers_by_scope.get(provider_scope, [provider_scope])
               shard_suffix = (
@@ -196,30 +224,44 @@ jobs:
                   else ""
               )
               if provider_sequence:
-                  matrix = [
-                      {
-                          "brand": provider,
-                          "brand_label": f"{provider}{shard_suffix}",
-                          "suite_label": form_suite,
-                          "suites_csv": ",".join(suites),
-                          "url_shard_index": url_shard_index,
-                          "url_shard_total": url_shard_total,
-                      }
-                      for provider in providers
-                  ]
+                  matrix = []
+                  for provider in providers:
+                      runnable_suites = [
+                          suite for suite in suites
+                          if has_urls_for_combo(provider, suite, url_shard_index, url_shard_total)
+                      ]
+                      if not runnable_suites:
+                          print(
+                              f"SKIP provider={provider} shard={url_shard_index}/{url_shard_total}: "
+                              "no runnable suites"
+                          )
+                          continue
+                      matrix.append(
+                          {
+                              "brand": provider,
+                              "brand_label": f"{provider}{shard_suffix}",
+                              "suite_label": form_suite,
+                              "suites_csv": ",".join(runnable_suites),
+                              "url_shard_index": url_shard_index,
+                              "url_shard_total": url_shard_total,
+                          }
+                      )
               else:
-                  matrix = [
-                      {
-                          "brand": provider,
-                          "brand_label": f"{provider}{shard_suffix}",
-                          "suite_label": suite,
-                          "suites_csv": suite,
-                          "url_shard_index": url_shard_index,
-                          "url_shard_total": url_shard_total,
-                      }
-                      for suite in suites
-                      for provider in providers
-                  ]
+                  matrix = []
+                  for suite in suites:
+                      for provider in providers:
+                          if not has_urls_for_combo(provider, suite, url_shard_index, url_shard_total):
+                              continue
+                          matrix.append(
+                              {
+                                  "brand": provider,
+                                  "brand_label": f"{provider}{shard_suffix}",
+                                  "suite_label": suite,
+                                  "suites_csv": suite,
+                                  "url_shard_index": url_shard_index,
+                                  "url_shard_total": url_shard_total,
+                              }
+                          )
           print("Matrix size:", len(matrix))
           print(json.dumps(matrix, ensure_ascii=False))
 
