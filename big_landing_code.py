@@ -66,6 +66,32 @@ ERROR_STEP_NAMES = {
     "city_no_redirect": "Изменить город в попапе заявки",
 }
 
+SOFT_HOUSE_RETRY_VALUES = ("1", "2", "7")
+SOFT_HOUSE_RETRY_URLS = {
+    "https://beeline-internet.online/krasnodar",
+    "https://beeline-ru.pro/moskovskaya_oblast",
+}
+
+
+def _normalize_runtime_url(url: str) -> str:
+    raw = (url or "").strip()
+    if not raw:
+        return ""
+    parsed = urlsplit(raw)
+    scheme = (parsed.scheme or "").lower()
+    host = (parsed.netloc or "").lower()
+    if not scheme or not host:
+        return raw.rstrip("/")
+    path = (parsed.path or "").rstrip("/")
+    return f"{scheme}://{host}{path}"
+
+
+def _use_soft_house_retry(page: Page, form_type: str) -> bool:
+    if form_type not in {"profit", "connection", "checkaddress", "moving", "express-connection"}:
+        return False
+    current_url = _normalize_runtime_url(page.url or "")
+    return current_url in SOFT_HOUSE_RETRY_URLS
+
 
 def _now_msk_str() -> str:
     try:
@@ -1432,7 +1458,12 @@ def verify_thanks_close_and_return(
 # Подсказки
 # ---------------------------------------------------------------------------
 
-def choose_first_suggestion(page: Page, timeout_ms: int = SUGGEST_TIMEOUT_MS, field=None) -> bool:
+def choose_first_suggestion(
+    page: Page,
+    timeout_ms: int = SUGGEST_TIMEOUT_MS,
+    field=None,
+    allow_keyboard_fallback: bool = True,
+) -> bool:
     poll_ms = 150
     elapsed = 0
     while elapsed < timeout_ms:
@@ -1450,6 +1481,10 @@ def choose_first_suggestion(page: Page, timeout_ms: int = SUGGEST_TIMEOUT_MS, fi
                     pass
         page.wait_for_timeout(poll_ms)
         elapsed += poll_ms
+
+    if not allow_keyboard_fallback:
+        print("  [SUGGEST] No visible suggestions within timeout")
+        return False
 
     print("  [SUGGEST FALLBACK] ArrowDown+Enter")
     try:
@@ -1879,14 +1914,51 @@ def fill_form(page: Page, container, form_type: str,
                             page, HOUSE_ENABLE_TIMEOUT_MS, FIREFOX_HOUSE_ENABLE_TIMEOUT_MS
                         )
                         expect(house).to_be_enabled(timeout=house_enable_timeout)
-                        house.scroll_into_view_if_needed()
-                        house.click(force=True)
-                        house.fill("1")
-                        print("  [FORM] House entered, waiting suggestion...")
                         suggest_timeout = browser_timeout(
                             page, SUGGEST_TIMEOUT_MS, FIREFOX_SUGGEST_TIMEOUT_MS
                         )
-                        choose_first_suggestion(page, timeout_ms=suggest_timeout, field=house)
+
+                        if _use_soft_house_retry(page, form_type):
+                            print(
+                                f"  [FORM] Soft house retry enabled for URL: "
+                                f"{_normalize_runtime_url(page.url or '')}"
+                            )
+                            suggest_picked = False
+                            for house_value in SOFT_HOUSE_RETRY_VALUES:
+                                house.scroll_into_view_if_needed()
+                                house.click(force=True)
+                                try:
+                                    house.fill("")
+                                except Exception:
+                                    pass
+                                house.fill(house_value)
+                                print(
+                                    f"  [FORM] House '{house_value}' entered, waiting visible suggestion..."
+                                )
+                                suggest_picked = choose_first_suggestion(
+                                    page,
+                                    timeout_ms=suggest_timeout,
+                                    field=house,
+                                    allow_keyboard_fallback=False,
+                                )
+                                if suggest_picked:
+                                    print(f"  [FORM] House suggestion selected with value '{house_value}'")
+                                    break
+                            if not suggest_picked:
+                                print("  [FORM] No visible house suggestion for 1/2/7 -> keyboard fallback")
+                                choose_first_suggestion(
+                                    page,
+                                    timeout_ms=suggest_timeout,
+                                    field=house,
+                                    allow_keyboard_fallback=True,
+                                )
+                        else:
+                            house.scroll_into_view_if_needed()
+                            house.click(force=True)
+                            house.fill("1")
+                            print("  [FORM] House entered, waiting suggestion...")
+                            choose_first_suggestion(page, timeout_ms=suggest_timeout, field=house)
+
                         house_ready = True
                         break
                     except Exception as e:
