@@ -574,7 +574,7 @@ POPUP_SKIP_KEYWORDS = ["проверить адрес", "сменить горо
 SUGGESTION_SELECTORS = [
     "[role='option']", "[role='listbox'] li",
     ".suggestions__item", ".suggestion-item",
-    ".autocomplete__item", ".ui-menu-item",
+    ".autocomplete__item", ".autocomplete-item", ".ui-menu-item",
     "[class*='suggest'] li", "[class*='autocomplete'] li",
     "[class*='dropdown'] li",
 ]
