@@ -359,6 +359,13 @@ jobs:
     name: Pilot • ${{ matrix.brand_label }} • ${{ matrix.suite_label }}
     needs: build_matrix
     runs-on: ubuntu-latest
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_PROXY_URL: ${{ secrets.TELEGRAM_PROXY_URL }}
+      TELEGRAM_PROXY_AUTH_SECRET: ${{ secrets.TELEGRAM_PROXY_AUTH_SECRET }}
+      TELEGRAM_PROXY_CREDS: ${{ secrets.TELEGRAM_PROXY_CREDS }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     strategy:
       fail-fast: false
       max-parallel: ${{ fromJson(needs.build_matrix.outputs.effective_max_parallel) }}
