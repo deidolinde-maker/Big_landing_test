@@ -308,4 +308,7 @@ def optional_expected_form_types(page_url: str) -> list[str]:
     # EXPRESS может быть скрыт A/B-тестом на согласованных URL.
     if _is_allowlisted(current_url, EXPRESS_URL_ALLOWLIST):
         optional.add("express-connection")
+    # PROFIT на mts-home-online.ru может отсутствовать в A/B-тесте — это не ошибка.
+    if _is_allowlisted(current_url, {canonicalize_url("https://mts-home-online.ru/")}):
+        optional.add("profit")
     return sorted(optional)
