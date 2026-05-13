@@ -102,12 +102,6 @@
     ],
     "force_present": []
   },
-  "https://moskva.mts-home.online/all-tariffs/mts-riil": {
-    "missing": [
-      "undecided"
-    ],
-    "force_present": []
-  },
   "https://moskva.mts-home.online/all-tariffs/mts-riil-plus": {
     "missing": [
       "profit",
@@ -234,12 +228,6 @@
     "force_present": [
       "business"
     ]
-  },
-  "https://mts-home-gpon.ru/moskva/mobilnaya-svyaz": {
-    "missing": [
-      "undecided"
-    ],
-    "force_present": []
   },
   "https://mts-home-online.ru/business": {
     "missing": [
