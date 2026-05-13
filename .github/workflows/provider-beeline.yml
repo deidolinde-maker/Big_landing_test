@@ -65,6 +65,11 @@ on:
         required: false
         default: true
         type: boolean
+      alert_daily_summary:
+        description: 'Telegram: daily summary alerts (09:00/17:00 MSK)'
+        required: false
+        default: true
+        type: boolean
 
   workflow_call:
     inputs:
@@ -116,6 +121,10 @@ on:
         required: false
         type: boolean
         default: true
+      alert_daily_summary:
+        required: false
+        type: boolean
+        default: true
     secrets:
       TELEGRAM_BOT_TOKEN:
         required: false
@@ -139,6 +148,7 @@ jobs:
       ALERT_AGGREGATES_ENABLED: ${{ inputs.alert_aggregates && 'true' || 'false' }}
       ALERT_SUMMARY_ENABLED: ${{ inputs.alert_summary && 'true' || 'false' }}
       ALERT_RECOVERED_ENABLED: ${{ inputs.alert_recovered && 'true' || 'false' }}
+      ALERT_DAILY_SUMMARY_ENABLED: ${{ inputs.alert_daily_summary && 'true' || 'false' }}
 
     steps:
       - name: Checkout repository
@@ -542,6 +552,7 @@ jobs:
           ALERT_AGGREGATES_ENABLED: ${{ env.ALERT_AGGREGATES_ENABLED }}
           ALERT_SUMMARY_ENABLED: ${{ env.ALERT_SUMMARY_ENABLED }}
           ALERT_RECOVERED_ENABLED: ${{ env.ALERT_RECOVERED_ENABLED }}
+          ALERT_DAILY_SUMMARY_ENABLED: ${{ env.ALERT_DAILY_SUMMARY_ENABLED }}
 
       - name: Check if Telegram message should be sent
         if: always()
@@ -572,4 +583,5 @@ jobs:
           publish_branch: gh-pages
           publish_dir: allure-publish
           destination_dir: provider-beeline
+
 

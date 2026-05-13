@@ -51,6 +51,11 @@ on:
         required: false
         default: true
         type: boolean
+      alert_daily_summary:
+        description: 'Telegram: daily summary alerts (09:00/17:00 MSK)'
+        required: false
+        default: true
+        type: boolean
       provider_alert_summary:
         description: 'Provider-level summary messages (recommended: false in orchestrator)'
         required: false
@@ -82,6 +87,7 @@ jobs:
       alert_aggregates: ${{ inputs.alert_aggregates }}
       alert_summary: ${{ inputs.provider_alert_summary }}
       alert_recovered: ${{ inputs.provider_alert_recovered }}
+      alert_daily_summary: ${{ inputs.alert_daily_summary }}
     secrets: inherit
 
   beeline:
@@ -100,6 +106,7 @@ jobs:
       alert_aggregates: ${{ inputs.alert_aggregates }}
       alert_summary: ${{ inputs.provider_alert_summary }}
       alert_recovered: ${{ inputs.provider_alert_recovered }}
+      alert_daily_summary: ${{ inputs.alert_daily_summary }}
     secrets: inherit
 
   megafon:
@@ -118,6 +125,7 @@ jobs:
       alert_aggregates: ${{ inputs.alert_aggregates }}
       alert_summary: ${{ inputs.provider_alert_summary }}
       alert_recovered: ${{ inputs.provider_alert_recovered }}
+      alert_daily_summary: ${{ inputs.alert_daily_summary }}
     secrets: inherit
 
   t2:
@@ -136,6 +144,7 @@ jobs:
       alert_aggregates: ${{ inputs.alert_aggregates }}
       alert_summary: ${{ inputs.provider_alert_summary }}
       alert_recovered: ${{ inputs.provider_alert_recovered }}
+      alert_daily_summary: ${{ inputs.alert_daily_summary }}
     secrets: inherit
 
   rostelecom:
@@ -154,6 +163,7 @@ jobs:
       alert_aggregates: ${{ inputs.alert_aggregates }}
       alert_summary: ${{ inputs.provider_alert_summary }}
       alert_recovered: ${{ inputs.provider_alert_recovered }}
+      alert_daily_summary: ${{ inputs.alert_daily_summary }}
     secrets: inherit
 
   domru:
@@ -172,6 +182,7 @@ jobs:
       alert_aggregates: ${{ inputs.alert_aggregates }}
       alert_summary: ${{ inputs.provider_alert_summary }}
       alert_recovered: ${{ inputs.provider_alert_recovered }}
+      alert_daily_summary: ${{ inputs.alert_daily_summary }}
     secrets: inherit
 
   final_summary:

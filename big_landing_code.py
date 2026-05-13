@@ -529,7 +529,7 @@ POPUP_BUTTON_CLASSES = {
 # Константы
 # ---------------------------------------------------------------------------
 
-SUCCESS_URL_MARKERS = ["/tilda/form1/submitted", "/thanks"]
+SUCCESS_URL_MARKERS = ["/tilda/form1/submitted", "/thanks", "/thank_you_page"]
 SITE_UNAVAILABLE_THRESHOLD_MS = 60_000
 NAV_GOTO_TIMEOUT_MS = 20_000
 NAV_RETRIES = 3
@@ -3103,6 +3103,88 @@ def process_inline_connection_form(
     return 1, 0, None, {"connection"}
 
 
+def process_checkaddress_form(
+    page: Page,
+    base_url: str,
+    *,
+    allow_root_return_after_thanks: bool = False,
+) -> tuple[int, int, str | None]:
+    """
+    Проверка checkaddress с поддержкой двух режимов:
+    1) инлайн-форма на странице
+    2) попап по кнопке .checkaddress_address_button
+    """
+    cfg = FORM_CONFIGS["checkaddress"]
+    container = page.locator("section, form, div").filter(
+        has=page.locator(cfg["phone"])
+    ).first
+
+    try:
+        has_inline = container.count() > 0
+    except Exception:
+        has_inline = False
+
+    if not has_inline:
+        print("  [CHECKADDRESS] Инлайн-форма не найдена, пробуем открыть попап по кнопке")
+        trigger = page.locator(POPUP_BUTTON_CLASSES["checkaddress"]).first
+        try:
+            if trigger.count() > 0 and trigger.is_visible():
+                trigger.scroll_into_view_if_needed()
+                trigger.click(timeout=7_000, force=True)
+                page.wait_for_timeout(350)
+            else:
+                return 0, 1, "форма checkaddress не найдена на странице"
+        except Exception as err:
+            return 0, 1, f"не удалось открыть checkaddress по кнопке: {err}"
+
+        detected_form, popup_container = wait_for_popup_with_fields(
+            page,
+            timeout_ms=12_000,
+            form_hint="checkaddress",
+        )
+        if detected_form != "checkaddress" or popup_container is None:
+            return 0, 1, "форма checkaddress не найдена на странице"
+        container = popup_container
+
+    filled = fill_form(page, container, "checkaddress")
+    if not filled:
+        return 0, 1, "форма checkaddress не заполнена"
+
+    submit = find_submit(container, "checkaddress")
+    if not submit:
+        return 0, 1, "кнопка отправки checkaddress не найдена"
+
+    submit.scroll_into_view_if_needed()
+    print("  ✅ checkaddress готова")
+    if not REALLY_SUBMIT:
+        return 1, 0, None
+
+    return_url_before_submit = page.url or base_url
+    ok = submit_with_confirmation(
+        page,
+        container,
+        "checkaddress",
+        timeout_ms=SUBMIT_CONFIRM_TIMEOUT_MS,
+        attempts=2,
+    )
+    if not ok:
+        return 0, 1, "подтверждение отправки не получено"
+
+    thanks_ok, thanks_reason = verify_thanks_close_and_return(
+        page,
+        return_url_before_submit,
+        allow_root_return=allow_root_return_after_thanks,
+    )
+    if not thanks_ok:
+        return 0, 1, f"не выполнен шаг закрытия Thanks: {thanks_reason}"
+
+    nav_ok, _, nav_reason = safe_goto(page, base_url)
+    if not nav_ok:
+        return 0, 1, f"не удалось вернуться на {base_url} после Thanks: {nav_reason}"
+    close_overlays(page)
+    return 1, 0, None
+
+
 # ---------------------------------------------------------------------------
 # Выбор города
 # ---------------------------------------------------------------------------
@@ -3421,47 +3503,12 @@ def run_site_scenario(page: Page, cfg: dict):
             goto_or_handle_step(page, base_url, site_label, "1", "форма checkaddress")
             close_overlays(page)
 
-            step_reason = None
-            fcfg      = FORM_CONFIGS["checkaddress"]
-            container = page.locator("section, form, div").filter(
-                has=page.locator(fcfg["phone"])
-            ).first
-
-            if container.count() > 0:
-                filled = fill_form(page, container, "checkaddress")
-                submit = find_submit(container, "checkaddress") if filled else None
-                if submit:
-                    submit.scroll_into_view_if_needed()
-                    print(f"  ✅ checkaddress готова")
-                    if REALLY_SUBMIT:
-                        return_url_before_submit = page.url or base_url
-                        ok = submit_with_confirmation(
-                            page, container, "checkaddress",
-                            timeout_ms=SUBMIT_CONFIRM_TIMEOUT_MS, attempts=2
-                        )
-                        if ok:
-                            thanks_ok, thanks_reason = verify_thanks_close_and_return(
-                                page,
-                                return_url_before_submit,
-                                allow_root_return=is_url_mode,
-                            )
-                            if thanks_ok:
-                                nav_ok, _, nav_reason = safe_goto(page, base_url)
-                                if not nav_ok:
-                                    step_reason = f"не удалось вернуться на {base_url} после Thanks: {nav_reason}"
-                            else:
-                                step_reason = f"не выполнен шаг закрытия Thanks: {thanks_reason}"
-                        else:
-                            step_reason = "подтверждение отправки не получено"
-                elif not filled:
-                    step_reason = "форма checkaddress не заполнена"
-                else:
-                    step_reason = "кнопка отправки checkaddress не найдена"
-            else:
-                print("  ⚠️  Форма checkaddress не найдена на странице")
-                step_reason = "форма checkaddress не найдена на странице"
-
-            if step_reason:
+            _, checkaddress_failed, step_reason = process_checkaddress_form(
+                page,
+                base_url,
+                allow_root_return_after_thanks=is_url_mode,
+            )
+            if checkaddress_failed > 0 and step_reason:
                 send_step_alert(site_label, "1", "форма checkaddress", step_reason, page)
         else:
             reason = (

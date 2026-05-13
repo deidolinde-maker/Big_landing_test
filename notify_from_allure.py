@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
@@ -48,6 +48,24 @@ ALERT_ERRORS_ENABLED = env_bool("ALERT_ERRORS_ENABLED", True)
 ALERT_AGGREGATES_ENABLED = env_bool("ALERT_AGGREGATES_ENABLED", True)
 ALERT_SUMMARY_ENABLED = env_bool("ALERT_SUMMARY_ENABLED", True)
 ALERT_RECOVERED_ENABLED = env_bool("ALERT_RECOVERED_ENABLED", True)
+ALERT_DAILY_SUMMARY_ENABLED = env_bool("ALERT_DAILY_SUMMARY_ENABLED", True)
+NOTIFY_MODE = (os.getenv("NOTIFY_MODE") or "run").strip().lower()
+MSK_TZ = timezone(timedelta(hours=3))
+DEFAULT_FORM_TITLE = "заявки"
+
+
+STEP_PATTERNS: list[tuple[str, str]] = [
+    ("Появился попап заявки", "попап не появился"),
+    ("Появился попап заявки", "popup_not_found"),
+    ("Кнопка-триггер не найдена", "кнопка-триггер"),
+    ("Кнопка-триггер не найдена", "trigger"),
+    ("Выбор улицы в сайджесте", "street"),
+    ("Выбор дома в сайджесте", "house"),
+    ("Ввод номера телефона", "phone"),
+    ("Отправка заявки после клика на кнопку отправки", "submit"),
+    ("Отправка заявки после клика на кнопку отправки", "no_confirmation"),
+    ("Изменить город в попапе заявки", "city"),
+]
 
 
 def normalize_text(value: str, max_len: int = 220) -> str:
@@ -55,6 +73,18 @@ def normalize_text(value: str, max_len: int = 220) -> str:
     if len(text) > max_len:
         return text[: max_len - 3] + "..."
     return text
+
+
+def now_msk_text() -> str:
+    return datetime.now(MSK_TZ).strftime("%Y-%m-%d %H:%M (МСК)")
+
+
+def detect_step(message: str, name: str) -> str:
+    haystack = f"{message} {name}".lower()
+    for title, token in STEP_PATTERNS:
+        if token in haystack:
+            return title
+    return "Не выполнен шаг тест-кейса"
 
 
 def normalize_site_label(value: str) -> str:
@@ -138,6 +168,10 @@ def collect_results(results_dir: Path) -> tuple[int, list[dict]]:
                 "name": normalize_text(data.get("name") or path.name, max_len=180),
                 "message": normalize_text(details.get("message") or "без текста ошибки", max_len=240),
                 "browser": extract_browser_name(data),
+                "step": detect_step(
+                    normalize_text(details.get("message") or "", max_len=500),
+                    normalize_text(data.get("name") or "", max_len=500),
+                ),
             }
         )
 
@@ -158,28 +192,40 @@ def load_json_from_url(url: str) -> dict:
     return json.loads(payload)
 
 
-def load_previous_failed_sites() -> set[str]:
+def load_previous_state() -> dict:
+    default_state = {"failed_sites": [], "failed_signatures": []}
     try:
         if STATE_FILE.exists():
             data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-            return set(data.get("failed_sites") or [])
+            if isinstance(data, dict):
+                return {
+                    "failed_sites": list(data.get("failed_sites") or []),
+                    "failed_signatures": list(data.get("failed_signatures") or []),
+                }
+            return default_state
     except Exception:
         pass
 
     if not STATE_URL:
-        return set()
+        return default_state
 
     try:
         data = load_json_from_url(STATE_URL)
-        return set(data.get("failed_sites") or [])
+        if isinstance(data, dict):
+            return {
+                "failed_sites": list(data.get("failed_sites") or []),
+                "failed_signatures": list(data.get("failed_signatures") or []),
+            }
+        return default_state
     except Exception:
-        return set()
+        return default_state
 
 
-def save_current_failed_sites(failed_sites: set[str]) -> None:
+def save_current_state(failed_sites: set[str], failed_signatures: set[str]) -> None:
     payload = {
         "updated_at_utc": datetime.now(timezone.utc).isoformat(),
         "failed_sites": sorted(failed_sites),
+        "failed_signatures": sorted(failed_signatures),
     }
     try:
         if STATE_FILE.parent:
@@ -199,6 +245,54 @@ def append_site_lines(lines: list[str], sites: list[tuple[str, list[dict]]]) -> 
         lines.append(f"  пример: {sample}")
 
 
+def format_single_error_block(
+    site: str,
+    step: str,
+    items: list[dict],
+) -> str:
+    sample = items[0]
+    detail = normalize_text(sample.get("message") or sample.get("name") or "без деталей", max_len=220)
+    return "\n".join(
+        [
+            f"🚨 Ошибка глобального автотеста формы [{DEFAULT_FORM_TITLE}]",
+            f"🕒 Время: {now_msk_text()}",
+            f"🌐 Лендинг: {site}",
+            f"❌ Ошибка: {step}",
+            f"🔎 Детали: {detail}",
+        ]
+    )
+
+
+def format_aggregate_block(
+    site: str,
+    step: str,
+    items: list[dict],
+    total_failed: int,
+) -> str:
+    pct = round((len(items) / max(total_failed, 1)) * 100)
+    return "\n".join(
+        [
+            f"🚨 Ошибка глобального автотеста формы [{DEFAULT_FORM_TITLE}]",
+            f"🕒 Время: {now_msk_text()}",
+            f"🌐 Лендинг: {site}",
+            f"❌ Ошибка: {step}",
+            f"📊 Масштаб: {len(items)} падений ({pct}%)",
+        ]
+    )
+
+
+def group_failed_by_site_step(failed_records: list[dict]) -> dict[tuple[str, str], list[dict]]:
+    grouped: dict[tuple[str, str], list[dict]] = {}
+    for record in failed_records:
+        key = (record.get("site") or "unknown-site", record.get("step") or "Не выполнен шаг тест-кейса")
+        grouped.setdefault(key, []).append(record)
+    return grouped
+
+
+def signature_for_site_step(site: str, step: str) -> str:
+    return f"{site}||{step}"
+
+
 def trim_message(message: str, max_len: int = MAX_MESSAGE_LEN) -> str:
     if len(message) <= max_len:
         return message
@@ -209,61 +303,83 @@ def build_summary(
     passed: int,
     failed_records: list[dict],
     resolved_sites: list[str],
+    previous_failed_signatures: set[str],
 ) -> tuple[str, bool]:
     failed_total = len(failed_records)
-    grouped = group_failed_by_site(failed_records)
-    failed_sites_count = len(grouped)
+    grouped_by_site = group_failed_by_site(failed_records)
+    grouped_by_site_step = group_failed_by_site_step(failed_records)
+    failed_sites_count = len(grouped_by_site)
 
     lines: list[str] = []
     has_any_category_output = False
 
-    if failed_total == 0:
-        header = "✅ Прогон завершён успешно"
-    else:
-        header = "❌ Прогон завершён с ошибками"
-
-    if ALERT_SUMMARY_ENABLED:
+    summary_enabled = ALERT_SUMMARY_ENABLED if NOTIFY_MODE != "daily" else ALERT_DAILY_SUMMARY_ENABLED
+    if summary_enabled:
         has_any_category_output = True
-        lines.extend([header, ""])
+        if failed_total == 0:
+            lines.extend([f"✅ Глобальный автотест форм заявок завершён ({now_msk_text()})", ""])
+        else:
+            lines.extend([f"🚨 Глобальный автотест форм заявок завершён с ошибками ({now_msk_text()})", ""])
         if SITE_HINT:
             lines.append(f"Сайт (input): {SITE_HINT}")
             lines.append("")
-        lines.append(f"✅ Успешно: {passed}")
-        lines.append(f"❌ Упало: {failed_total}")
         lines.append(f"🌐 Лендингов с ошибками: {failed_sites_count}")
+        lines.append(f"✔️ Успешных: {passed}")
+        lines.append(f"❌ Ошибок: {failed_total}")
 
     if failed_total > 0:
-        sorted_sites = sorted(grouped.items(), key=lambda item: len(item[1]), reverse=True)
-        regular_sites = [(site, items) for site, items in sorted_sites if len(items) <= NORMAL_ALERT_MAX_PER_SITE]
-        aggregated_sites = [(site, items) for site, items in sorted_sites if len(items) > NORMAL_ALERT_MAX_PER_SITE]
+        sorted_site_steps = sorted(grouped_by_site_step.items(), key=lambda item: len(item[1]), reverse=True)
+        regular_groups = [item for item in sorted_site_steps if len(item[1]) <= NORMAL_ALERT_MAX_PER_SITE]
+        aggregate_groups = [item for item in sorted_site_steps if len(item[1]) > NORMAL_ALERT_MAX_PER_SITE]
 
-        if ALERT_AGGREGATES_ENABLED and failed_sites_count > MASS_ALERT_SITE_THRESHOLD:
+        repeated_aggregate_groups: list[tuple[tuple[str, str], list[dict]]] = []
+        first_seen_aggregate_groups: list[tuple[tuple[str, str], list[dict]]] = []
+        for key, items in aggregate_groups:
+            site, step = key
+            signature = signature_for_site_step(site, step)
+            if signature in previous_failed_signatures:
+                repeated_aggregate_groups.append((key, items))
+            else:
+                first_seen_aggregate_groups.append((key, items))
+
+        repeated_sites = {key[0] for key, _ in repeated_aggregate_groups}
+        if ALERT_AGGREGATES_ENABLED and len(repeated_sites) > MASS_ALERT_SITE_THRESHOLD and summary_enabled:
             has_any_category_output = True
             lines.append("")
             lines.append(
-                f"🚨 Массовая ошибка: {failed_sites_count} лендингов имеют падения (всего {failed_total} ошибок)."
+                f"🚨 Массовая ошибка: {len(repeated_sites)} лендингов имеют повторяющиеся падения (всего {failed_total} ошибок)"
             )
 
-        if ALERT_ERRORS_ENABLED and regular_sites:
-            has_any_category_output = True
-            lines.append("")
-            lines.append("Точечные алерты (1–5 падений на лендинг):")
-            append_site_lines(lines, regular_sites)
+        # Важно: накопительные алерты отправляем только со 2-го прогона подряд.
+        # Первичную фиксацию крупных групп оставляем в обычных alert_errors.
+        effective_regular_groups = regular_groups + first_seen_aggregate_groups
 
-        if ALERT_AGGREGATES_ENABLED and aggregated_sites:
+        if ALERT_ERRORS_ENABLED and effective_regular_groups:
             has_any_category_output = True
-            lines.append("")
-            lines.append("Агрегированные алерты (>5 падений на лендинг):")
-            append_site_lines(lines, aggregated_sites)
+            for (site, step), items in effective_regular_groups[:8]:
+                lines.append("")
+                lines.append(format_single_error_block(site, step, items))
+
+        if ALERT_AGGREGATES_ENABLED and repeated_aggregate_groups:
+            has_any_category_output = True
+            for (site, step), items in repeated_aggregate_groups[:8]:
+                lines.append("")
+                lines.append(format_aggregate_block(site, step, items, failed_total))
 
     if ALERT_RECOVERED_ENABLED and resolved_sites:
         has_any_category_output = True
-        lines.append("")
-        lines.append("✅ Исправлено после восстановления:")
         for site in resolved_sites[:10]:
-            lines.append(f"• {site}")
-        if len(resolved_sites) > 10:
-            lines.append(f"... и ещё {len(resolved_sites) - 10}")
+            lines.append("")
+            lines.extend(
+                [
+                    f"✅ Ошибка устранена: глобального автотеста формы [{DEFAULT_FORM_TITLE}]",
+                    f"🕒 Время: {now_msk_text()}",
+                    f"🌐 Лендинг: {site}",
+                ]
+            )
+        if len(resolved_sites) > 10 and summary_enabled:
+            lines.append("")
+            lines.append(f"… и ещё восстановлений: {len(resolved_sites) - 10}")
 
     if has_any_category_output:
         lines.append("")
@@ -278,11 +394,23 @@ def build_summary(
 def main() -> int:
     passed, failed_records = collect_results(RESULTS_DIR)
     current_failed_sites = {record["site"] for record in failed_records if record.get("site")}
-    previous_failed_sites = load_previous_failed_sites()
+    grouped_current = group_failed_by_site_step(failed_records)
+    current_failed_signatures = {
+        signature_for_site_step(site, step) for (site, step) in grouped_current.keys()
+    }
+
+    previous_state = load_previous_state()
+    previous_failed_sites = set(previous_state.get("failed_sites") or [])
+    previous_failed_signatures = set(previous_state.get("failed_signatures") or [])
     resolved_sites = sorted(previous_failed_sites - current_failed_sites)
 
-    message, should_send = build_summary(passed, failed_records, resolved_sites)
-    save_current_failed_sites(current_failed_sites)
+    message, should_send = build_summary(
+        passed,
+        failed_records,
+        resolved_sites,
+        previous_failed_signatures=previous_failed_signatures,
+    )
+    save_current_state(current_failed_sites, current_failed_signatures)
 
     OUT_FLAG_FILE.write_text("1" if should_send else "0", encoding="utf-8")
     OUT_MESSAGE_FILE.write_text(message, encoding="utf-8")
