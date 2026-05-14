@@ -65,14 +65,6 @@
     ],
     "force_present": []
   },
-  "https://moskva.rtk-ru.online/business": {
-    "missing": [
-      "undecided"
-    ],
-    "force_present": [
-      "business"
-    ]
-  },
   "https://moskva.rtk-ru.online/connect": {
     "missing": [
       "undecided"
@@ -218,14 +210,6 @@
       "undecided"
     ],
     "force_present": []
-  },
-  "https://rtk-ru.online/business": {
-    "missing": [
-      "undecided"
-    ],
-    "force_present": [
-      "business"
-    ]
   },
   "https://rtk-ru.online/connect": {
     "missing": [

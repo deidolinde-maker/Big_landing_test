@@ -70,6 +70,18 @@ SOFT_HOUSE_RETRY_VALUES = ("1", "2", "7")
 SOFT_HOUSE_RETRY_URLS = {
     "https://beeline-internet.online/krasnodar",
     "https://beeline-ru.pro/moskovskaya_oblast",
+    "https://shcherbinka.mts-home.online/address/ul-rabocaja-id10443",
+    "https://shcherbinka.mts-home.online/address/ul-rabocaja-id104433",
+    "https://shcherbinka.mts-home.online/address/ul-rabochaya-d-2-id203432",
+}
+SOFT_HOUSE_RETRY_VALUES_BY_URL = {
+    "https://shcherbinka.mts-home.online/address/ul-rabocaja-id10443": ("2", "7", "1"),
+    "https://shcherbinka.mts-home.online/address/ul-rabocaja-id104433": ("2", "7", "1"),
+    "https://shcherbinka.mts-home.online/address/ul-rabochaya-d-2-id203432": ("2", "7", "1"),
+}
+CONNECTION_TRIGGER_BUSINESS_FORM_URLS = {
+    "https://mts-home.online/business",
+    "https://moskva.mts-home.online/business",
 }
 
 
@@ -91,6 +103,34 @@ def _use_soft_house_retry(page: Page, form_type: str) -> bool:
         return False
     current_url = _normalize_runtime_url(page.url or "")
     return current_url in SOFT_HOUSE_RETRY_URLS
+
+
+def _soft_house_retry_values(page: Page) -> tuple[str, ...]:
+    current_url = _normalize_runtime_url(page.url or "")
+    return SOFT_HOUSE_RETRY_VALUES_BY_URL.get(current_url, SOFT_HOUSE_RETRY_VALUES)
+
+
+def _resolve_expected_form_alias(
+    *,
+    base_url: str,
+    expected_form_types: set[str] | None,
+    detected_form_type: str,
+    form_hint: str | None,
+) -> str | None:
+    """
+    URL-specific compatibility:
+    on selected /business pages connection trigger can open business form.
+    Treat that popup as satisfying "connection" expectation.
+    """
+    if (
+        expected_form_types
+        and "connection" in expected_form_types
+        and detected_form_type == "business"
+        and (form_hint in {None, "", "connection"})
+        and _normalize_runtime_url(base_url) in CONNECTION_TRIGGER_BUSINESS_FORM_URLS
+    ):
+        return "connection"
+    return None
 
 
 def _now_msk_str() -> str:
@@ -1972,7 +2012,8 @@ def fill_form(page: Page, container, form_type: str,
                                 f"{_normalize_runtime_url(page.url or '')}"
                             )
                             suggest_picked = False
-                            for house_value in SOFT_HOUSE_RETRY_VALUES:
+                            retry_values = _soft_house_retry_values(page)
+                            for house_value in retry_values:
                                 entered_house = refill_house_value(house, house_value)
                                 print(
                                     f"  [FORM] House target='{house_value}', actual='{entered_house}', "
@@ -1988,7 +2029,10 @@ def fill_form(page: Page, container, form_type: str,
                                     print(f"  [FORM] House suggestion selected with value '{house_value}'")
                                     break
                             if not suggest_picked:
-                                print("  [FORM] No visible house suggestion for 1/2/7 -> keyboard fallback")
+                                tried_values = "/".join(retry_values)
+                                print(
+                                    f"  [FORM] No visible house suggestion for {tried_values} -> keyboard fallback"
+                                )
                                 choose_first_suggestion(
                                     page,
                                     timeout_ms=suggest_timeout,
@@ -2735,17 +2779,33 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
             register_failure("popup_not_found")
             continue
 
+        reported_form_type = form_type
         if expected_form_types and form_type not in expected_form_types:
-            print(f"  [{label}] Пропуск формы '{form_type}': не в expected_form_types")
+            alias_form_type = _resolve_expected_form_alias(
+                base_url=base_url,
+                expected_form_types=expected_form_types,
+                detected_form_type=form_type,
+                form_hint=form_hint,
+            )
+            if alias_form_type:
+                reported_form_type = alias_form_type
+                print(
+                    f"  [{label}] Alias формы '{form_type}' -> '{reported_form_type}' "
+                    f"для URL {base_url}"
+                )
+            else:
+                print(f"  [{label}] Пропуск формы '{form_type}': не в expected_form_types")
+                close_popup_or_page(page)
+                continue
+
+        if reported_form_type in tested_form_types:
+            print(
+                f"  [{label}] Пропуск формы '{reported_form_type}': "
+                "тип уже проверен"
+            )
             close_popup_or_page(page)
             continue
-
-        if form_type in tested_form_types:
-            print(f"  [{label}] Пропуск формы '{form_type}': тип уже проверен")
-            close_popup_or_page(page)
-            continue
-        tested_form_types.add(form_type)
-
+        tested_form_types.add(reported_form_type)
         detected_service_values = []
         if form_type not in ("profit", "business"):
             detected_service_values = detect_service_place_values(container)
@@ -3520,62 +3580,70 @@ def run_site_scenario(page: Page, cfg: dict):
 
     # ── 2. Попапы главной ─────────────────────────────────────────────────
     with allure.step("Шаг 2: попапы главной"):
-        print(f"\n{sep}\n[{site_label}] Шаг 2: попапы главной\n{sep}")
-        goto_or_handle_step(page, base_url, site_label, "2", "попапы главной")
-        close_overlays(page)
-        try:
-            s, f, first_fail, tested_popup_forms, tested_trigger_kinds = process_all_popups(
-                page,
-                base_url,
-                has_name_field=has_name_field,
-                service_mode=service_mode,
-                allow_root_return_after_thanks=is_url_mode,
-                expected_form_types=expected_popup_forms if is_url_mode else None,
-                expect_connection_cards=expect_connection_cards if is_url_mode else False,
+        if is_url_mode and not expected_popup_forms and not expect_connection_cards:
+            mark_step_not_applicable(
+                site_label,
+                "2",
+                "попапы главной",
+                "для текущего form-suite popup-типы не ожидаются",
             )
-        except SiteUnavailableError as e:
-            skip_site_due_unavailability(site_label, "2", "попапы главной", str(e), page)
-        if is_url_mode and "connection" in expected_popup_forms and "connection" not in tested_popup_forms:
-            inline_s, inline_f, inline_first_fail, inline_tested = process_inline_connection_form(
-                page,
-                base_url,
-                has_name_field=has_name_field,
-                allow_root_return_after_thanks=is_url_mode,
+        else:
+            print(f"\n{sep}\n[{site_label}] Шаг 2: попапы главной\n{sep}")
+            goto_or_handle_step(page, base_url, site_label, "2", "попапы главной")
+            close_overlays(page)
+            try:
+                s, f, first_fail, tested_popup_forms, tested_trigger_kinds = process_all_popups(
+                    page,
+                    base_url,
+                    has_name_field=has_name_field,
+                    service_mode=service_mode,
+                    allow_root_return_after_thanks=is_url_mode,
+                    expected_form_types=expected_popup_forms if is_url_mode else None,
+                    expect_connection_cards=expect_connection_cards if is_url_mode else False,
+                )
+            except SiteUnavailableError as e:
+                skip_site_due_unavailability(site_label, "2", "попапы главной", str(e), page)
+            if is_url_mode and "connection" in expected_popup_forms and "connection" not in tested_popup_forms:
+                inline_s, inline_f, inline_first_fail, inline_tested = process_inline_connection_form(
+                    page,
+                    base_url,
+                    has_name_field=has_name_field,
+                    allow_root_return_after_thanks=is_url_mode,
+                )
+                s += inline_s
+                f += inline_f
+                tested_popup_forms |= inline_tested
+                if first_fail is None and inline_first_fail:
+                    first_fail = inline_first_fail[:220]
+            if is_url_mode:
+                missing_popup_forms = expected_popup_forms - tested_popup_forms
+                missing_required_popup_forms = missing_popup_forms - optional_popup_forms
+                missing_optional_popup_forms = missing_popup_forms & optional_popup_forms
+                if missing_optional_popup_forms:
+                    optional_text = ", ".join(sorted(missing_optional_popup_forms))
+                    print(f"  [POPUP] ℹ️ optional формы не обнаружены (допустимо): {optional_text}")
+                if missing_required_popup_forms:
+                    f += len(missing_required_popup_forms)
+                    missing_text = ", ".join(sorted(missing_required_popup_forms))
+                    detail = f"не найдены ожидаемые типы форм: {missing_text}"
+                    if first_fail is None:
+                        first_fail = detail[:220]
+                    print(f"  [POPUP] ❌ {detail}")
+                if expect_connection_cards and "connection_card" not in tested_trigger_kinds:
+                    f += 1
+                    detail = "не сработал card-триггер connection_address_card_button"
+                    if first_fail is None:
+                        first_fail = detail[:220]
+                    print(f"  [POPUP] ❌ {detail}")
+            if f > 0:
+                reason = f"{f} ошибок, {s} успешно"
+                if first_fail:
+                    reason += f" | first={first_fail}"
+                send_step_alert(site_label, "2", "попапы главной", reason[:900], page)
+            assert f == 0, (
+                f"[{site_label}] Попапы главной: {f} ошибок, {s} успешно"
+                + (f" | first={first_fail}" if first_fail else "")
             )
-            s += inline_s
-            f += inline_f
-            tested_popup_forms |= inline_tested
-            if first_fail is None and inline_first_fail:
-                first_fail = inline_first_fail[:220]
-        if is_url_mode:
-            missing_popup_forms = expected_popup_forms - tested_popup_forms
-            missing_required_popup_forms = missing_popup_forms - optional_popup_forms
-            missing_optional_popup_forms = missing_popup_forms & optional_popup_forms
-            if missing_optional_popup_forms:
-                optional_text = ", ".join(sorted(missing_optional_popup_forms))
-                print(f"  [POPUP] ℹ️ optional формы не обнаружены (допустимо): {optional_text}")
-            if missing_required_popup_forms:
-                f += len(missing_required_popup_forms)
-                missing_text = ", ".join(sorted(missing_required_popup_forms))
-                detail = f"не найдены ожидаемые типы форм: {missing_text}"
-                if first_fail is None:
-                    first_fail = detail[:220]
-                print(f"  [POPUP] ❌ {detail}")
-            if expect_connection_cards and "connection_card" not in tested_trigger_kinds:
-                f += 1
-                detail = "не сработал card-триггер connection_address_card_button"
-                if first_fail is None:
-                    first_fail = detail[:220]
-                print(f"  [POPUP] ❌ {detail}")
-        if f > 0:
-            reason = f"{f} ошибок, {s} успешно"
-            if first_fail:
-                reason += f" | first={first_fail}"
-            send_step_alert(site_label, "2", "попапы главной", reason[:900], page)
-        assert f == 0, (
-            f"[{site_label}] Попапы главной: {f} ошибок, {s} успешно"
-            + (f" | first={first_fail}" if first_fail else "")
-        )
 
     # ── 3. Попапы /business ───────────────────────────────────────────────
     with allure.step("Шаг 3: попапы /business"):

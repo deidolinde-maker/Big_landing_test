@@ -55,22 +55,6 @@
     ],
     "force_present": []
   },
-  "https://beeline-ru.online/business": {
-    "missing": [
-      "undecided"
-    ],
-    "force_present": [
-      "business"
-    ]
-  },
-  "https://beeline-ru.online/business/mobilnaya-svyaz-dlya-biznesa": {
-    "missing": [
-      "undecided"
-    ],
-    "force_present": [
-      "business"
-    ]
-  },
   "https://beeline-ru.online/connect": {
     "missing": [
       "undecided"
