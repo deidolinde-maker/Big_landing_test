@@ -133,7 +133,9 @@ def _resolve_expected_form_alias(
     return None
 
 
-def _is_connection_business_like_context(page: Page, form_type: str) -> bool:
+def _is_connection_business_like_context(page: Page | None, form_type: str) -> bool:
+    if page is None:
+        return False
     if form_type != "connection":
         return False
     current_url = _normalize_runtime_url(page.url or "")
@@ -2126,6 +2128,16 @@ def find_submit(container, form_type: str):
     # On selected /business URLs the connection trigger can open a business-like
     # form that uses business submit selector.
     if form_type == "connection":
+        page_ctx = None
+        try:
+            page_ctx = container.page
+        except Exception:
+            page_ctx = None
+        use_business_fallback = _is_connection_business_like_context(page_ctx, form_type)
+    else:
+        use_business_fallback = False
+
+    if use_business_fallback:
         submit_selectors.extend(
             [
                 ".business_no_address_button_send",
