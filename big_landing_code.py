@@ -2121,14 +2121,29 @@ def fill_form(page: Page, container, form_type: str,
 
 def find_submit(container, form_type: str):
     cfg    = FORM_CONFIGS[form_type]
-    submit = container.locator(cfg["submit"]).first
-    try:
-        if submit.count() > 0 and submit.is_visible() and submit.is_enabled():
-            print(f"  [SUBMIT] Найдена '{cfg['submit']}'")
-            return submit
-    except Exception:
-        pass
-    print(f"  [SUBMIT] ❌ Не найдена '{cfg['submit']}'")
+    submit_selectors = [cfg["submit"]]
+
+    # On selected /business URLs the connection trigger can open a business-like
+    # form that uses business submit selector.
+    if form_type == "connection":
+        submit_selectors.extend(
+            [
+                ".business_no_address_button_send",
+                "input.wpcf7-submit",
+                "button[type='submit'], input[type='submit']",
+            ]
+        )
+
+    for submit_selector in submit_selectors:
+        submit = container.locator(submit_selector).first
+        try:
+            if submit.count() > 0 and submit.is_visible() and submit.is_enabled():
+                print(f"  [SUBMIT] Найдена '{submit_selector}'")
+                return submit
+        except Exception:
+            pass
+
+    print(f"  [SUBMIT] ❌ Не найдена '{' | '.join(submit_selectors)}'")
     return None
 
 
