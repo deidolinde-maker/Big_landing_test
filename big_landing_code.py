@@ -133,6 +133,13 @@ def _resolve_expected_form_alias(
     return None
 
 
+def _is_connection_business_like_context(page: Page, form_type: str) -> bool:
+    if form_type != "connection":
+        return False
+    current_url = _normalize_runtime_url(page.url or "")
+    return current_url in CONNECTION_TRIGGER_BUSINESS_FORM_URLS
+
+
 def _now_msk_str() -> str:
     try:
         dt = datetime.now(ZoneInfo("Europe/Moscow"))
@@ -502,10 +509,10 @@ FORM_CONFIGS = {
         "no_suggest": False,
     },
     "connection": {
-        "street":     ".connection_address_street",
-        "house":      ".connection_address_house",
-        "phone":      ".connection_address_phone",
-        "submit":     ".connection_address_button_send",
+        "street":     ".connection_address_street, [name='AddresStreet'], #city[placeholder='Адрес'], #city",
+        "house":      ".connection_address_house, [name='AddresHouse']",
+        "phone":      ".connection_address_phone, [name='Phone']",
+        "submit":     ".connection_address_button_send, #submit.connection_address_button_send, #submit",
         "no_house":   False,
         "no_suggest": False,
     },
@@ -553,7 +560,7 @@ FORM_CONFIGS = {
 
 # CSS-классы кнопок, открывающих попапы (по типу формы)
 POPUP_BUTTON_CLASSES = {
-    "connection":         ".connection_address_button",
+    "connection":         "#btnup.connection_address_button, .connection_address_button, #btnup",
     "connection_card":    ".connection_address_card_button",
     "checkaddress":       ".checkaddress_address_button",
     "undecided":          ".checkaddress-undecided",
@@ -1860,6 +1867,12 @@ def fill_form(page: Page, container, form_type: str,
     cfg        = FORM_CONFIGS[form_type]
     no_house   = cfg.get("no_house", False)
     no_suggest = cfg.get("no_suggest", False)
+    if _is_connection_business_like_context(page, form_type):
+        # On specific /business URLs connection trigger opens business-like form
+        # without house/suggest logic.
+        no_house = True
+        no_suggest = True
+        print("  [FORM] Connection business-like mode: house/suggest steps are skipped")
 
     if service_place_value:
         if not select_service_place_value(container, service_place_value):
