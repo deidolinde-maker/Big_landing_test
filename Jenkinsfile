@@ -8,9 +8,29 @@
   }
 
   parameters {
-    choice(name: 'PROVIDER_SCOPE', choices: ['all', 'smoke', 'mts', 'beeline', 'megafon', 't2', 'rostelecom', 'domru'], description: 'Provider scope to run.')
-    string(name: 'SITE', defaultValue: '', description: 'Optional site filter. Leave empty to run all provider sites.')
+    choice(
+      name: 'PROVIDER_SCOPE',
+      choices: [
+        'release_chain',
+        'big_two_1of2',
+        'big_two_2of2',
+        'rtk_megafon',
+        'small_pool',
+        'mts',
+        'beeline',
+        'megafon',
+        't2',
+        'rostelecom',
+        'domru',
+        'ttk',
+      ],
+      description: 'URL-brand scope. release_chain: big_two 1/2 -> big_two 2/2 -> rtk_megafon -> small_pool(domru+ttk).'
+    )
+    string(name: 'SITE', defaultValue: '', description: 'Unused in URL-brand mode. Keep empty.')
+    choice(name: 'FORM_SUITE', choices: ['all', 'profit', 'connection', 'connection_cards', 'checkaddress', 'business', 'undecided', 'moving', 'express'], description: 'Form suite to run in URL-brand mode.')
     choice(name: 'SERVICE_MODE', choices: ['core', 'variants', 'all'], description: 'Service mode to run.')
+    booleanParam(name: 'ENABLE_CONTINUOUS_LOOP', defaultValue: false, description: 'After summary, schedule next build with same params.')
+    string(name: 'LOOP_DELAY_SECONDS', defaultValue: '60', description: 'Delay before scheduling next loop build.')
 
     booleanParam(name: 'RUN_CHROMIUM', defaultValue: true, description: 'Run desktop chromium profile.')
     booleanParam(name: 'RUN_FIREFOX', defaultValue: false, description: 'Run desktop firefox profile.')
@@ -52,6 +72,12 @@
         script {
           if (!(params.RUN_CHROMIUM || params.RUN_FIREFOX || params.RUN_WEBKIT || params.RUN_MOBILE_CHROMIUM || params.RUN_MOBILE_WEBKIT)) {
             error('Select at least one browser/profile toggle.')
+          }
+          if ((params.SITE ?: '').trim()) {
+            error('SITE parameter is not supported in URL-brand mode. Leave SITE empty.')
+          }
+          if ((params.LOOP_DELAY_SECONDS ?: '').trim() && !((params.LOOP_DELAY_SECONDS as String) ==~ /\d+/)) {
+            error('LOOP_DELAY_SECONDS must be an integer >= 0.')
           }
         }
       }
@@ -222,83 +248,129 @@
           rm -rf allure-results allure-results-* || true
           mkdir -p allure-results
 
-          providers=""
-          case "${PROVIDER_SCOPE}" in
-            all) providers="mts beeline megafon t2 rostelecom domru" ;;
-            smoke) providers="domru t2" ;;
-            *) providers="${PROVIDER_SCOPE}" ;;
-          esac
+          suites=""
+          if [ "${FORM_SUITE}" = "all" ]; then
+            suites="profit connection connection_cards checkaddress business undecided moving express"
+          else
+            suites="${FORM_SUITE}"
+          fi
 
           run_one() {
-            provider="$1"
+            brand="$1"
             mode="$2"
             browser="$3"
             profile="$4"
             suffix="$5"
+            shard_index="$6"
+            shard_total="$7"
+            suite="$8"
 
-            PYTEST_ARGS="big_landing_code.py --alluredir=allure-results-${mode}-${suffix} --timeout=600 -s --service-mode=${mode} --browser=${browser} --blocking-profile=${BLOCKING_PROFILE} --provider=${provider}"
-            if [ -n "${SITE}" ]; then
-              PYTEST_ARGS="${PYTEST_ARGS} --site=${SITE}"
-            fi
+            PYTEST_ARGS="big_landing_code.py --alluredir=allure-results-${mode}-${suffix}-${brand}-${suite}-s${shard_index}of${shard_total} --timeout=600 -s --service-mode=${mode} --browser=${browser} --blocking-profile=${BLOCKING_PROFILE} --url-brand=${brand} --form-suite=${suite} --url-shard-index=${shard_index} --url-shard-total=${shard_total}"
             if [ -n "${profile}" ]; then
               PYTEST_ARGS="${PYTEST_ARGS} --execution-profile=${profile}"
             fi
 
-            echo "Running: provider=${provider} mode=${mode} browser=${browser} profile=${profile:-desktop}"
+            echo "Running: brand=${brand} suite=${suite} shard=${shard_index}/${shard_total} mode=${mode} browser=${browser} profile=${profile:-desktop}"
             echo "Pytest args: ${PYTEST_ARGS}"
             "${pybin}" -m pytest ${PYTEST_ARGS}
           }
 
-          for provider in ${providers}; do
+          run_brand_shard() {
+            brand="$1"
+            shard_index="$2"
+            shard_total="$3"
             echo "==================================================="
-            echo "Provider: ${provider}"
+            echo "Brand: ${brand} | shard ${shard_index}/${shard_total}"
             echo "==================================================="
 
-            if [ "${RUN_CHROMIUM}" = "true" ]; then
-              if [ "${SERVICE_MODE}" = "core" ] || [ "${SERVICE_MODE}" = "all" ]; then
-                run_one "${provider}" "core" "chromium" "" "chromium"
+            for suite in ${suites}; do
+              if [ "${RUN_CHROMIUM}" = "true" ]; then
+                if [ "${SERVICE_MODE}" = "core" ] || [ "${SERVICE_MODE}" = "all" ]; then
+                  run_one "${brand}" "core" "chromium" "" "chromium" "${shard_index}" "${shard_total}" "${suite}"
+                fi
+                if [ "${SERVICE_MODE}" = "variants" ] || [ "${SERVICE_MODE}" = "all" ]; then
+                  run_one "${brand}" "variants" "chromium" "" "chromium" "${shard_index}" "${shard_total}" "${suite}"
+                fi
               fi
-              if [ "${SERVICE_MODE}" = "variants" ] || [ "${SERVICE_MODE}" = "all" ]; then
-                run_one "${provider}" "variants" "chromium" "" "chromium"
-              fi
-            fi
 
-            if [ "${RUN_FIREFOX}" = "true" ]; then
-              if [ "${SERVICE_MODE}" = "core" ] || [ "${SERVICE_MODE}" = "all" ]; then
-                run_one "${provider}" "core" "firefox" "" "firefox"
+              if [ "${RUN_FIREFOX}" = "true" ]; then
+                if [ "${SERVICE_MODE}" = "core" ] || [ "${SERVICE_MODE}" = "all" ]; then
+                  run_one "${brand}" "core" "firefox" "" "firefox" "${shard_index}" "${shard_total}" "${suite}"
+                fi
+                if [ "${SERVICE_MODE}" = "variants" ] || [ "${SERVICE_MODE}" = "all" ]; then
+                  run_one "${brand}" "variants" "firefox" "" "firefox" "${shard_index}" "${shard_total}" "${suite}"
+                fi
               fi
-              if [ "${SERVICE_MODE}" = "variants" ] || [ "${SERVICE_MODE}" = "all" ]; then
-                run_one "${provider}" "variants" "firefox" "" "firefox"
-              fi
-            fi
 
-            if [ "${RUN_WEBKIT}" = "true" ]; then
-              if [ "${SERVICE_MODE}" = "core" ] || [ "${SERVICE_MODE}" = "all" ]; then
-                run_one "${provider}" "core" "webkit" "" "webkit"
+              if [ "${RUN_WEBKIT}" = "true" ]; then
+                if [ "${SERVICE_MODE}" = "core" ] || [ "${SERVICE_MODE}" = "all" ]; then
+                  run_one "${brand}" "core" "webkit" "" "webkit" "${shard_index}" "${shard_total}" "${suite}"
+                fi
+                if [ "${SERVICE_MODE}" = "variants" ] || [ "${SERVICE_MODE}" = "all" ]; then
+                  run_one "${brand}" "variants" "webkit" "" "webkit" "${shard_index}" "${shard_total}" "${suite}"
+                fi
               fi
-              if [ "${SERVICE_MODE}" = "variants" ] || [ "${SERVICE_MODE}" = "all" ]; then
-                run_one "${provider}" "variants" "webkit" "" "webkit"
-              fi
-            fi
 
-            if [ "${RUN_MOBILE_CHROMIUM}" = "true" ]; then
-              if [ "${SERVICE_MODE}" = "core" ] || [ "${SERVICE_MODE}" = "all" ]; then
-                run_one "${provider}" "core" "chromium" "mobile-chromium" "mobile-chromium"
+              if [ "${RUN_MOBILE_CHROMIUM}" = "true" ]; then
+                if [ "${SERVICE_MODE}" = "core" ] || [ "${SERVICE_MODE}" = "all" ]; then
+                  run_one "${brand}" "core" "chromium" "mobile-chromium" "mobile-chromium" "${shard_index}" "${shard_total}" "${suite}"
+                fi
+                if [ "${SERVICE_MODE}" = "variants" ] || [ "${SERVICE_MODE}" = "all" ]; then
+                  run_one "${brand}" "variants" "chromium" "mobile-chromium" "mobile-chromium" "${shard_index}" "${shard_total}" "${suite}"
+                fi
               fi
-              if [ "${SERVICE_MODE}" = "variants" ] || [ "${SERVICE_MODE}" = "all" ]; then
-                run_one "${provider}" "variants" "chromium" "mobile-chromium" "mobile-chromium"
-              fi
-            fi
 
-            if [ "${RUN_MOBILE_WEBKIT}" = "true" ]; then
-              if [ "${SERVICE_MODE}" = "core" ] || [ "${SERVICE_MODE}" = "all" ]; then
-                run_one "${provider}" "core" "webkit" "mobile-webkit" "mobile-webkit"
+              if [ "${RUN_MOBILE_WEBKIT}" = "true" ]; then
+                if [ "${SERVICE_MODE}" = "core" ] || [ "${SERVICE_MODE}" = "all" ]; then
+                  run_one "${brand}" "core" "webkit" "mobile-webkit" "mobile-webkit" "${shard_index}" "${shard_total}" "${suite}"
+                fi
+                if [ "${SERVICE_MODE}" = "variants" ] || [ "${SERVICE_MODE}" = "all" ]; then
+                  run_one "${brand}" "variants" "webkit" "mobile-webkit" "mobile-webkit" "${shard_index}" "${shard_total}" "${suite}"
+                fi
               fi
-              if [ "${SERVICE_MODE}" = "variants" ] || [ "${SERVICE_MODE}" = "all" ]; then
-                run_one "${provider}" "variants" "webkit" "mobile-webkit" "mobile-webkit"
-              fi
-            fi
-          done
+            done
+          }
+
+          run_scope() {
+            scope_name="$1"
+            echo "###################################################"
+            echo "SCOPE: ${scope_name}"
+            echo "###################################################"
+            case "${scope_name}" in
+              big_two_1of2)
+                run_brand_shard "mts" "1" "2"
+                run_brand_shard "beeline" "1" "2"
+                ;;
+              big_two_2of2)
+                run_brand_shard "mts" "2" "2"
+                run_brand_shard "beeline" "2" "2"
+                ;;
+              rtk_megafon)
+                run_brand_shard "rostelecom" "1" "1"
+                run_brand_shard "megafon" "1" "1"
+                ;;
+              small_pool)
+                run_brand_shard "domru" "1" "1"
+                run_brand_shard "ttk" "1" "1"
+                ;;
+              mts|beeline|megafon|t2|rostelecom|domru|ttk)
+                run_brand_shard "${scope_name}" "1" "1"
+                ;;
+              *)
+                echo "Unknown PROVIDER_SCOPE: ${scope_name}"
+                exit 2
+                ;;
+            esac
+          }
+
+          if [ "${PROVIDER_SCOPE}" = "release_chain" ]; then
+            run_scope "big_two_1of2"
+            run_scope "big_two_2of2"
+            run_scope "rtk_megafon"
+            run_scope "small_pool"
+          else
+            run_scope "${PROVIDER_SCOPE}"
+          fi
 
           for d in allure-results-*; do
             if [ -d "${d}" ]; then
@@ -404,6 +476,42 @@ PY
         }
       }
       echo "Build URL: ${env.BUILD_URL}"
+      script {
+        if (params.ENABLE_CONTINUOUS_LOOP) {
+          int quietSeconds = 60
+          try {
+            quietSeconds = (params.LOOP_DELAY_SECONDS as Integer)
+          } catch (Exception ignored) {
+            quietSeconds = 60
+          }
+          if (quietSeconds < 0) {
+            quietSeconds = 60
+          }
+          echo "Continuous loop enabled. Scheduling next build in ${quietSeconds}s."
+          build job: env.JOB_NAME,
+            wait: false,
+            quietPeriod: quietSeconds,
+            parameters: [
+              string(name: 'PROVIDER_SCOPE', value: params.PROVIDER_SCOPE),
+              string(name: 'SITE', value: params.SITE),
+              string(name: 'FORM_SUITE', value: params.FORM_SUITE),
+              string(name: 'SERVICE_MODE', value: params.SERVICE_MODE),
+              string(name: 'BLOCKING_PROFILE', value: params.BLOCKING_PROFILE),
+              string(name: 'LOOP_DELAY_SECONDS', value: params.LOOP_DELAY_SECONDS),
+              booleanParam(name: 'ENABLE_CONTINUOUS_LOOP', value: params.ENABLE_CONTINUOUS_LOOP),
+              booleanParam(name: 'RUN_CHROMIUM', value: params.RUN_CHROMIUM),
+              booleanParam(name: 'RUN_FIREFOX', value: params.RUN_FIREFOX),
+              booleanParam(name: 'RUN_WEBKIT', value: params.RUN_WEBKIT),
+              booleanParam(name: 'RUN_MOBILE_CHROMIUM', value: params.RUN_MOBILE_CHROMIUM),
+              booleanParam(name: 'RUN_MOBILE_WEBKIT', value: params.RUN_MOBILE_WEBKIT),
+              booleanParam(name: 'ALERT_ERRORS', value: params.ALERT_ERRORS),
+              booleanParam(name: 'ALERT_AGGREGATES', value: params.ALERT_AGGREGATES),
+              booleanParam(name: 'ALERT_SUMMARY', value: params.ALERT_SUMMARY),
+              booleanParam(name: 'ALERT_RECOVERED', value: params.ALERT_RECOVERED),
+              booleanParam(name: 'USE_TELEGRAM_PROXY', value: params.USE_TELEGRAM_PROXY),
+            ]
+        }
+      }
     }
   }
 }
