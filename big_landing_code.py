@@ -2593,7 +2593,7 @@ def process_unexpected_auto_profit_popup(
 ) -> tuple[bool, bool, str]:
     """
     Подстраховка: если auto-profit всплыл во время проверки другой формы,
-    отправляем его и возвращаемся к исходному сценарию.
+    закрываем его и возвращаемся к исходному сценарию (без submit).
 
     Возвращает:
       handled, ok, fail_code
@@ -2607,36 +2607,8 @@ def process_unexpected_auto_profit_popup(
     if form_type is None:
         return False, True, ""
 
-    print(f"  [AUTO-PROFIT] Неожиданное появление во время '{context}' — обрабатываем")
-    if not fill_form(page, container, form_type, has_name_field=has_name_field):
-        log_error("form_not_filled", page, site_label, extra=f"auto profit during {context}")
-        return True, False, "form_not_filled"
-
-    submit = find_submit(container, form_type)
-    if submit is None:
-        log_error("submit_not_found", page, site_label, extra=f"auto profit during {context}")
-        return True, False, "submit_not_found"
-
-    if REALLY_SUBMIT:
-        return_url_before_submit = page.url or base_url
-        ok = submit_with_confirmation(
-            page, container, form_type,
-            timeout_ms=SUBMIT_CONFIRM_TIMEOUT_MS, attempts=2
-        )
-        if not ok:
-            log_error("no_confirmation", page, site_label, extra=f"auto profit during {context}")
-            return True, False, "no_confirmation"
-        thanks_ok, thanks_reason = verify_thanks_close_and_return(
-            page,
-            return_url_before_submit,
-            allow_root_return=allow_root_return_after_thanks,
-        )
-        if not thanks_ok:
-            log_error("thanks_return_failed", page, site_label, extra=f"auto profit during {context} | {thanks_reason}")
-            return True, False, "thanks_return_failed"
-        return True, True, ""
-
-    close_popup_or_page(page)
+    print(f"  [AUTO-PROFIT] Неожиданное появление во время '{context}' — закрываем без submit")
+    dismiss_profit_popup(page)
     return True, True, ""
 
 
@@ -2895,10 +2867,10 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
                 close_popup_or_page(page)
                 continue
 
-        if reported_form_type in tested_form_types:
+        if reported_form_type in successful_form_types:
             print(
                 f"  [{label}] Пропуск формы '{reported_form_type}': "
-                "тип уже проверен"
+                "тип уже успешно проверен"
             )
             close_popup_or_page(page)
             continue
