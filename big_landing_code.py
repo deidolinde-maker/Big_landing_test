@@ -3270,23 +3270,43 @@ def process_checkaddress_form(
 
     if not has_inline:
         print("  [CHECKADDRESS] Инлайн-форма не найдена, пробуем открыть попап по кнопке")
-        trigger = page.locator(POPUP_BUTTON_CLASSES["checkaddress"]).first
+        triggers = page.locator(POPUP_BUTTON_CLASSES["checkaddress"])
+        detected_form = None
+        popup_container = None
+        last_click_error: Exception | None = None
+        clicked_any = False
+
         try:
-            if trigger.count() > 0 and trigger.is_visible():
+            total_triggers = triggers.count()
+        except Exception:
+            total_triggers = 0
+
+        if total_triggers == 0:
+            return 0, 1, "форма checkaddress не найдена на странице"
+
+        for i in range(total_triggers):
+            trigger = triggers.nth(i)
+            try:
+                if not trigger.is_visible() or not trigger.is_enabled():
+                    continue
+                clicked_any = True
                 trigger.scroll_into_view_if_needed()
                 trigger.click(timeout=7_000, force=True)
                 page.wait_for_timeout(350)
-            else:
-                return 0, 1, "форма checkaddress не найдена на странице"
-        except Exception as err:
-            return 0, 1, f"не удалось открыть checkaddress по кнопке: {err}"
+                detected_form, popup_container = wait_for_popup_with_fields(
+                    page,
+                    timeout_ms=4_000,
+                    form_hint="checkaddress",
+                )
+                if detected_form == "checkaddress" and popup_container is not None:
+                    break
+            except Exception as err:
+                last_click_error = err
+                continue
 
-        detected_form, popup_container = wait_for_popup_with_fields(
-            page,
-            timeout_ms=12_000,
-            form_hint="checkaddress",
-        )
         if detected_form != "checkaddress" or popup_container is None:
+            if last_click_error is not None and not clicked_any:
+                return 0, 1, f"не удалось открыть checkaddress по кнопке: {last_click_error}"
             return 0, 1, "форма checkaddress не найдена на странице"
         container = popup_container
 
