@@ -31,6 +31,8 @@
     choice(name: 'SERVICE_MODE', choices: ['core', 'variants', 'all'], description: 'Service mode to run.')
     booleanParam(name: 'ENABLE_CONTINUOUS_LOOP', defaultValue: false, description: 'After summary, schedule next build with same params.')
     string(name: 'LOOP_DELAY_SECONDS', defaultValue: '60', description: 'Delay before scheduling next loop build.')
+    string(name: 'CHAIN_NEXT_JOB', defaultValue: '', description: 'Optional: next Jenkins job name for chained 24/7 run.')
+    string(name: 'CHAIN_NEXT_SCOPE', defaultValue: '', description: 'Optional: PROVIDER_SCOPE value for next chained job.')
 
     booleanParam(name: 'RUN_CHROMIUM', defaultValue: true, description: 'Run desktop chromium profile.')
     booleanParam(name: 'RUN_FIREFOX', defaultValue: false, description: 'Run desktop firefox profile.')
@@ -488,12 +490,20 @@ PY
           if (quietSeconds < 0) {
             quietSeconds = 60
           }
-          echo "Continuous loop enabled. Scheduling next build in ${quietSeconds}s."
-          build job: env.JOB_NAME,
+          def nextJobName = (params.CHAIN_NEXT_JOB ?: '').trim()
+          def nextScope = (params.CHAIN_NEXT_SCOPE ?: '').trim()
+          if (!nextScope) {
+            nextScope = params.PROVIDER_SCOPE
+          }
+          if (!nextJobName) {
+            nextJobName = env.JOB_NAME
+          }
+          echo "Continuous loop enabled. Scheduling next build: job='${nextJobName}', scope='${nextScope}', delay=${quietSeconds}s."
+          build job: nextJobName,
             wait: false,
             quietPeriod: quietSeconds,
             parameters: [
-              string(name: 'PROVIDER_SCOPE', value: params.PROVIDER_SCOPE),
+              string(name: 'PROVIDER_SCOPE', value: nextScope),
               string(name: 'SITE', value: params.SITE),
               string(name: 'FORM_SUITE', value: params.FORM_SUITE),
               string(name: 'SERVICE_MODE', value: params.SERVICE_MODE),
