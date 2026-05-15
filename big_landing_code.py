@@ -2725,6 +2725,18 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
 
             # Возобновляем исходный сценарий: повторно открываем целевую форму.
             try:
+                if form_hint == "business":
+                    nav_ok_after_profit, nav_critical_after_profit, nav_reason_after_profit = safe_goto(page, base_url)
+                    if not nav_ok_after_profit:
+                        if nav_critical_after_profit:
+                            raise SiteUnavailableError(
+                                f"{label}: сайт недоступен после auto-profit ({base_url}) | {nav_reason_after_profit}"
+                            )
+                        raise RuntimeError(
+                            f"не удалось вернуться на {base_url} после auto-profit: {nav_reason_after_profit}"
+                        )
+                    accept_cookie_banner(page)
+                    close_mobile_burger_menu(page)
                 retry_btn = btn_locator_fn(page, entry)
                 retry_btn.scroll_into_view_if_needed()
                 retry_btn.click(force=True)
@@ -2732,6 +2744,19 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
                 print(f"  [{label}] Возобновляем проверку после AUTO-PROFIT")
                 return "reopened"
             except Exception as e:
+                if form_hint == "business":
+                    try:
+                        fallback_btns = page.locator(POPUP_BUTTON_CLASSES["business"])
+                        for idx in range(fallback_btns.count()):
+                            candidate = fallback_btns.nth(idx)
+                            if candidate.count() > 0 and candidate.is_visible() and candidate.is_enabled():
+                                candidate.scroll_into_view_if_needed()
+                                candidate.click(force=True)
+                                page.wait_for_timeout(popup_click_settle_ms(page))
+                                print("  [BUSINESS] Fallback-клик при recover_from_unexpected_profit выполнен")
+                                return "reopened"
+                    except Exception:
+                        pass
                 err = str(e).replace("\n", " ")[:180]
                 log_error("click_failed", page, site_label, extra=f"reopen after auto-profit | {err}")
                 register_failure("click_failed", f"reopen after auto-profit | {err}")
