@@ -37,6 +37,7 @@ except Exception:
     pass
 
 REALLY_SUBMIT = True # True — реально отправлять заявки
+SUPPRESS_TECH_ALERTS = False
 
 # ---------------------------------------------------------------------------
 # Таблица ошибок → причин для Telegram-алертов
@@ -495,7 +496,10 @@ def log_error(error_code: str, page: "Page", site_label: str, extra: str = ""):
     details = " | ".join(p for p in detail_parts if p)
 
     message = _build_form_alert_message(site_label, url, error_text, details)
-    send_telegram_alert(message, alert_type="tech")
+    if SUPPRESS_TECH_ALERTS:
+        print("  [TELEGRAM][tech] Suppressed for current step")
+    else:
+        send_telegram_alert(message, alert_type="tech")
 
 # ---------------------------------------------------------------------------
 # Конфигурация форм (CSS-классы полей)
@@ -3590,6 +3594,7 @@ def run_site_scenario(page: Page, cfg: dict):
        4a. Попапы главной города
        4b. Попапы /business города (если has_business)
     """
+    global SUPPRESS_TECH_ALERTS
     base_url       = cfg["base_url"]
     has_name_field = cfg.get("has_name_field", False)
     sep            = "=" * 55
@@ -3738,6 +3743,13 @@ def run_site_scenario(page: Page, cfg: dict):
                     "\u043f\u043e\u043f\u0430\u043f\u044b /business",
                 )
                 # close_overlays is already handled inside goto_business_or_handle_step
+            suppress_tech_alerts_for_business = (
+                is_url_mode
+                and expected_business_forms == {"business"}
+            )
+            previous_suppress_tech_alerts = SUPPRESS_TECH_ALERTS
+            if suppress_tech_alerts_for_business:
+                SUPPRESS_TECH_ALERTS = True
             try:
                 s, f, first_fail, tested_business_forms = process_business_popups(
                     page,
@@ -3748,6 +3760,8 @@ def run_site_scenario(page: Page, cfg: dict):
                 )
             except SiteUnavailableError as e:
                 skip_site_due_unavailability(site_label, "3", "попапы /business", str(e), page)
+            finally:
+                SUPPRESS_TECH_ALERTS = previous_suppress_tech_alerts
             if is_url_mode:
                 missing_business = expected_business_forms - tested_business_forms
                 if missing_business:
@@ -3757,11 +3771,6 @@ def run_site_scenario(page: Page, cfg: dict):
                     if first_fail is None:
                         first_fail = detail[:220]
                     print(f"  [BUSINESS] ❌ {detail}")
-            if f > 0:
-                reason = f"{f} ошибок, {s} успешно"
-                if first_fail:
-                    reason += f" | first={first_fail}"
-                send_step_alert(site_label, "3", "попапы /business", reason[:900], page)
             allow_business_partial_success = (
                 is_url_mode
                 and expected_business_forms == {"business"}
@@ -3774,6 +3783,11 @@ def run_site_scenario(page: Page, cfg: dict):
                 )
                 f = 0
                 first_fail = None
+            if f > 0:
+                reason = f"{f} ошибок, {s} успешно"
+                if first_fail:
+                    reason += f" | first={first_fail}"
+                send_step_alert(site_label, "3", "попапы /business", reason[:900], page)
             assert f == 0, (
                 f"[{site_label}] Бизнес: {f} ошибок, {s} успешно"
                 + (f" | first={first_fail}" if first_fail else "")
