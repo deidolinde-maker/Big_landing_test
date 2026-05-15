@@ -403,6 +403,16 @@ pipeline {
 
   post {
     always {
+      sh '''
+        set +e
+        mkdir -p allure-results
+        for d in allure-results-*; do
+          if [ -d "${d}" ]; then
+            cp -R "${d}"/. allure-results/
+          fi
+        done
+        exit 0
+      '''
       archiveArtifacts artifacts: 'allure-results/**, allure-results-*/**, artifacts/videos/**, telegram_message.txt, telegram_should_send.txt, notify_state.json', allowEmptyArchive: true
       script {
         try {
