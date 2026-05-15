@@ -535,9 +535,9 @@ FORM_CONFIGS = {
         "no_suggest": False,
     },
     "business": {
-        "street":     ".business_no_address_full_address",
+        "street":     ".business_no_address_full_address, [name='City']",
         "house":      None,
-        "phone":      ".business_no_address_phone",
+        "phone":      ".business_no_address_phone, [name='Phone']",
         "submit":     ".business_no_address_button_send",
         "no_house":   True,
         "no_suggest": True,
@@ -2447,7 +2447,15 @@ def collect_business_buttons(page: Page) -> list:
                 continue
             text = (btn.inner_text() or "").strip().lower()
             tag  = btn.evaluate("el => el.tagName.toLowerCase()")
-            result.append({"nth": i, "text": text, "tag": tag})
+            result.append(
+                {
+                    "nth": i,
+                    "text": text,
+                    "tag": tag,
+                    "form_hint": "business",
+                    "trigger_kind": "business_button",
+                }
+            )
             print(f"  [BUSINESS COLLECT] #{len(result)} nth={i} <{tag}> '{text}'")
         except Exception:
             pass
@@ -3125,13 +3133,14 @@ def process_business_popups(page: Page, base_url: str,
     def locate(page, entry):
         return page.locator(POPUP_BUTTON_CLASSES["business"]).nth(entry["nth"])
 
-    return _run_popup_cycle(
+    success, failed, first_fail, tested_types, _tested_trigger_kinds = _run_popup_cycle(
         page, buttons, base_url, locate, label="BUSINESS",
         has_name_field=has_name_field, service_mode=service_mode,
         allow_root_return_after_thanks=True,
         expected_form_types=expected_form_types,
         stop_after_first_expected_form=bool(expected_form_types) and len(expected_form_types) == 1,
     )
+    return success, failed, first_fail, tested_types
 
 
 def process_inline_connection_form(
