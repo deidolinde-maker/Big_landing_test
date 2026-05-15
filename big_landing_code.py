@@ -535,7 +535,7 @@ FORM_CONFIGS = {
         "no_suggest": False,
     },
     "business": {
-        "street":     ".business_no_address_full_address, [name='City']",
+        "street":     ".business_no_address_full_address, [name='City'], [name='city'], #city, [name='Address'], [name='address'], input[placeholder='Адрес']",
         "house":      None,
         "phone":      ".business_no_address_phone, [name='Phone']",
         "submit":     ".business_no_address_button_send",
@@ -2652,6 +2652,7 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
     first_fail = None
     fail_details = []
     tested_form_types: set[str] = set()
+    successful_form_types: set[str] = set()
     tested_trigger_kinds: set[str] = set()
     site_label = base_url.replace("https://", "").replace("http://", "").strip("/")
     no_confirmation_by_text = {}
@@ -2660,7 +2661,7 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
         if (
             stop_after_first_expected_form
             and expected_form_types
-            and tested_form_types.intersection(expected_form_types)
+            and successful_form_types.intersection(expected_form_types)
         ):
             print(f"  [{label}] Целевая форма уже проверена, останавливаем цикл кнопок")
             break
@@ -2755,10 +2756,33 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
                 retry_btn.click(force=True)
                 page.wait_for_timeout(popup_click_settle_ms(page))
             except Exception as e:
-                err = str(e).replace("\n", " ")[:180]
-                log_error("click_failed", page, site_label, extra=f"{current_context} | {err}")
-                register_failure("click_failed", f"{current_context} | {err}")
-                return None, None, "failed"
+                if form_hint == "business":
+                    try:
+                        fallback_btns = page.locator(POPUP_BUTTON_CLASSES["business"])
+                        clicked = False
+                        for idx in range(fallback_btns.count()):
+                            candidate = fallback_btns.nth(idx)
+                            if candidate.count() > 0 and candidate.is_visible() and candidate.is_enabled():
+                                candidate.scroll_into_view_if_needed()
+                                candidate.click(force=True)
+                                page.wait_for_timeout(popup_click_settle_ms(page))
+                                clicked = True
+                                print("  [BUSINESS] Fallback-клик после auto-profit выполнен")
+                                break
+                        if clicked:
+                            e = None
+                        else:
+                            raise RuntimeError("fallback-кнопка business не найдена")
+                    except Exception as fb_err:
+                        err = str(fb_err).replace("\n", " ")[:180]
+                        log_error("click_failed", page, site_label, extra=f"{current_context} | {err}")
+                        register_failure("click_failed", f"{current_context} | {err}")
+                        return None, None, "failed"
+                else:
+                    err = str(e).replace("\n", " ")[:180]
+                    log_error("click_failed", page, site_label, extra=f"{current_context} | {err}")
+                    register_failure("click_failed", f"{current_context} | {err}")
+                    return None, None, "failed"
 
             reopened_form_type, reopened_container = wait_for_popup_with_fields(
                 page,
@@ -2957,6 +2981,7 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
                         register_failure("thanks_return_failed", f"service={service_label} | {thanks_reason}")
                         continue
                     success += 1
+                    successful_form_types.add(reported_form_type)
                 else:
                     log_error("no_confirmation", page, site_label, extra=f"service={service_label}")
                     register_failure("no_confirmation", f"service={service_label}")
@@ -2967,6 +2992,7 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
                 tested_trigger_kinds.add(trigger_kind)
                 close_popup_or_page(page)
                 success += 1
+                successful_form_types.add(reported_form_type)
 
             if service_idx < len(service_values):
                 form_type, container, reopen_status = reopen_target_popup(
