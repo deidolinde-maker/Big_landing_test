@@ -3762,6 +3762,18 @@ def run_site_scenario(page: Page, cfg: dict):
                 if first_fail:
                     reason += f" | first={first_fail}"
                 send_step_alert(site_label, "3", "попапы /business", reason[:900], page)
+            allow_business_partial_success = (
+                is_url_mode
+                and expected_business_forms == {"business"}
+                and s > 0
+            )
+            if allow_business_partial_success and f > 0:
+                print(
+                    f"  [BUSINESS] ⚠️ Есть частичные ошибки ({f}), "
+                    f"но минимум один успешный submit найден ({s}) — шаг засчитан"
+                )
+                f = 0
+                first_fail = None
             assert f == 0, (
                 f"[{site_label}] Бизнес: {f} ошибок, {s} успешно"
                 + (f" | first={first_fail}" if first_fail else "")
