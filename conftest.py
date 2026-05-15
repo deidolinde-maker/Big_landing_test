@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import pytest
 import allure
@@ -170,15 +171,22 @@ def validate_execution_profile(pytestconfig):
 @pytest.fixture(scope="session")
 def browser_context_args(browser_context_args, playwright, execution_profile):
     device_preset_name = EXECUTION_PROFILE_DEVICE_PRESET.get(execution_profile)
-    if not device_preset_name:
-        return browser_context_args
 
-    device_preset = playwright.devices[device_preset_name]
-    return {
-        **browser_context_args,
-        **device_preset,
-    }
+    merged_args = dict(browser_context_args)
+    if device_preset_name:
+        device_preset = playwright.devices[device_preset_name]
+        merged_args.update(device_preset)
 
+    # Включаем запись видео для каждого теста: при падении прикрепляем в Allure.
+    # Путь можно переопределить через env PW_VIDEO_DIR.
+    video_dir = Path(os.getenv("PW_VIDEO_DIR", "artifacts/videos")).resolve()
+    video_dir.mkdir(parents=True, exist_ok=True)
+    merged_args["record_video_dir"] = str(video_dir)
+
+    if "record_video_size" not in merged_args:
+        merged_args["record_video_size"] = {"width": 1280, "height": 720}
+
+    return merged_args
 
 @pytest.fixture(autouse=True)
 def apply_blocking_profile(page, blocking_profile):
@@ -200,10 +208,13 @@ def apply_blocking_profile(page, blocking_profile):
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     """
-    После каждого теста: если упал — делаем скриншот и прикрепляем к Allure.
+    После каждого теста:
+    - если упал шаг call: делаем скриншот;
+    - на teardown (после закрытия контекста): прикрепляем video.webm в Allure.
     """
     outcome = yield
-    report  = outcome.get_result()
+    report = outcome.get_result()
+    setattr(item, f"rep_{report.when}", report)
 
     if report.when == "call" and report.failed:
         page = item.funcargs.get("page")
@@ -217,3 +228,28 @@ def pytest_runtest_makereport(item, call):
                 )
             except Exception as e:
                 print(f"[SCREENSHOT] Не удалось сделать скриншот: {e}")
+
+            try:
+                item._failed_page_video = page.video
+            except Exception:
+                item._failed_page_video = None
+
+    if report.when == "teardown":
+        rep_call = getattr(item, "rep_call", None)
+        if rep_call and rep_call.failed:
+            video_obj = getattr(item, "_failed_page_video", None)
+            if video_obj is not None:
+                try:
+                    video_path = Path(video_obj.path())
+                    if video_path.exists() and video_path.stat().st_size > 0:
+                        allure.attach.file(
+                            str(video_path),
+                            name="video_on_failure",
+                            attachment_type=allure.attachment_type.WEBM,
+                        )
+                        print(f"[VIDEO] Attached: {video_path}")
+                    else:
+                        print(f"[VIDEO] Файл видео отсутствует или пустой: {video_path}")
+                except Exception as e:
+                    print(f"[VIDEO] Не удалось прикрепить видео: {e}")
+
