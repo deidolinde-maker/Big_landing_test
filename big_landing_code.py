@@ -37,7 +37,7 @@ except Exception:
     pass
 
 REALLY_SUBMIT = True # True — реально отправлять заявки
-SUPPRESS_TECH_ALERTS = False
+SUPPRESS_TECH_ALERTS = True
 
 # ---------------------------------------------------------------------------
 # Таблица ошибок → причин для Telegram-алертов
