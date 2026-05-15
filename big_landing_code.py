@@ -815,7 +815,15 @@ def pytest_generate_tests(metafunc):
                     select_site_configs(provider=provider_arg, site=site_arg).items()
                 )
         except ValueError as exc:
-            raise pytest.UsageError(str(exc)) from exc
+            message = str(exc)
+            # В URL-режиме при form-suite + shard часть шардов может быть пустой.
+            # Это штатно (например moving только на ограниченном наборе URL),
+            # поэтому пропускаем suite вместо падения всей CI-джобы.
+            if url_brand and "не найдено URL" in message:
+                print(f"[URL-MODE] ⚠️ {message} -> suite будет пропущен")
+                selected_items = []
+            else:
+                raise pytest.UsageError(message) from exc
 
         configs = []
         ids = []
