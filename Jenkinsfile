@@ -491,6 +491,12 @@ PY
       echo "Build URL: ${env.BUILD_URL}"
       script {
         if (params.ENABLE_CONTINUOUS_LOOP) {
+          def autoNextScopeMap = [
+            'big_two_1of2': 'big_two_2of2',
+            'big_two_2of2': 'rtk_megafon',
+            'rtk_megafon': 'small_pool',
+            'small_pool': 'big_two_1of2',
+          ]
           int quietSeconds = 60
           try {
             quietSeconds = (params.LOOP_DELAY_SECONDS as Integer)
@@ -503,10 +509,14 @@ PY
           def nextJobName = (params.CHAIN_NEXT_JOB ?: '').trim()
           def nextScope = (params.CHAIN_NEXT_SCOPE ?: '').trim()
           if (!nextScope) {
-            nextScope = params.PROVIDER_SCOPE
+            nextScope = autoNextScopeMap.get(params.PROVIDER_SCOPE as String, params.PROVIDER_SCOPE as String)
           }
           if (!nextJobName) {
-            nextJobName = env.JOB_NAME
+            if ((params.PROVIDER_SCOPE as String) == 'release_chain') {
+              nextJobName = env.JOB_NAME
+            } else {
+              nextJobName = nextScope
+            }
           }
           echo "Continuous loop enabled. Scheduling next build: job='${nextJobName}', scope='${nextScope}', delay=${quietSeconds}s."
           build job: nextJobName,
