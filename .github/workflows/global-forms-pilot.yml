@@ -455,3 +455,11 @@ jobs:
           name: allure-results-${{ matrix.brand_label }}-${{ matrix.suite_label }}
           path: allure-results
           if-no-files-found: ignore
+
+      - name: Upload Playwright videos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: videos-${{ matrix.brand_label }}-${{ matrix.suite_label }}
+          path: artifacts/videos
+          if-no-files-found: ignore
