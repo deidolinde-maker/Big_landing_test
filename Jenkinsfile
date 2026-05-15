@@ -51,6 +51,7 @@
     PIP_CACHE_DIR = '/var/lib/jenkins/cache/pip'
     PIP_DISABLE_PIP_VERSION_CHECK = '1'
     PYTHONUNBUFFERED = '1'
+    PW_VIDEO_DIR = 'artifacts/videos'
     PYTHON_BIN = '.venv/bin/python'
     PYTHON_BIN_FILE = '.python_bin'
     REQ_HASH_FILE = '.requirements.sha256'
@@ -170,8 +171,8 @@
 
           if [ "${need_install}" = "1" ]; then
             echo "Installing Python dependencies (first run or requirements changed)..."
-            "${pybin}" -m pip install --upgrade pip
-            "${pybin}" -m pip install -r requirements.txt
+            "${pybin}" -m pip install --cache-dir "${PIP_CACHE_DIR}" --upgrade pip
+            "${pybin}" -m pip install --cache-dir "${PIP_CACHE_DIR}" -r requirements.txt
             echo "${current_hash}" > "${REQ_HASH_FILE}"
           else
             echo "Python dependencies already installed, skip pip install."
@@ -400,7 +401,7 @@
 
   post {
     always {
-      archiveArtifacts artifacts: 'allure-results/**, allure-results-*/**, telegram_message.txt, telegram_should_send.txt, notify_state.json', allowEmptyArchive: true
+      archiveArtifacts artifacts: 'allure-results/**, allure-results-*/**, artifacts/videos/**, telegram_message.txt, telegram_should_send.txt, notify_state.json', allowEmptyArchive: true
       script {
         try {
           // Requires Jenkins Allure plugin. If not installed, continue without failing the build.
