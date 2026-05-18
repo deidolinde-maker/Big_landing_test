@@ -2071,7 +2071,28 @@ def fill_form(page: Page, container, form_type: str,
                             house.click(force=True)
                             house.fill("1")
                             print("  [FORM] House entered, waiting suggestion...")
-                            choose_first_suggestion(page, timeout_ms=suggest_timeout, field=house)
+                            house_suggest_picked = choose_first_suggestion(
+                                page,
+                                timeout_ms=suggest_timeout,
+                                field=house,
+                                allow_keyboard_fallback=False,
+                            )
+                            if not house_suggest_picked:
+                                print("  [FORM] House suggestion not visible yet, waiting extra...")
+                                house_suggest_picked = choose_first_suggestion(
+                                    page,
+                                    timeout_ms=suggest_timeout,
+                                    field=house,
+                                    allow_keyboard_fallback=False,
+                                )
+                            if not house_suggest_picked:
+                                print("  [FORM] House suggestion still missing -> keyboard fallback")
+                                choose_first_suggestion(
+                                    page,
+                                    timeout_ms=suggest_timeout,
+                                    field=house,
+                                    allow_keyboard_fallback=True,
+                                )
 
                         house_ready = True
                         break
@@ -3958,3 +3979,4 @@ def test_site(
     allure.dynamic.parameter("blocking_profile", blocking_profile)
     allure.dynamic.parameter("execution_profile", execution_profile)
     run_site_scenario(page, site_cfg)
+
