@@ -568,7 +568,7 @@ FORM_CONFIGS = {
 POPUP_BUTTON_CLASSES = {
     "connection":         "#btnup.connection_address_button, .connection_address_button, #btnup",
     "connection_card":    ".connection_address_card_button",
-    "checkaddress":       ".checkaddress_address_button, #btncheckaddress",
+    "checkaddress":       ".checkaddress_address_button, button.checkaddress_address_button, a.checkaddress_address_button, .button-checkaddress, #btncheckaddress, #btncheckaddress.checkaddress_address_button",
     "undecided":          ".checkaddress-undecided",
     "moving":             ".moving_address_button",
     "profit":             ".button-lead-catcher.profit_address_button, button.profit_address_button, a.profit_address_button, .profit_address_button",
@@ -2361,6 +2361,51 @@ def wait_for_popup_with_fields(page: Page, timeout_ms: int = 10_000,
 # Сбор кнопок
 # ---------------------------------------------------------------------------
 
+def find_visible_form_container_by_phone(page: Page, cfg: dict):
+    """
+    Fallback: некоторые шаблоны раскрывают форму не как popup-контейнер.
+    Ищем любой видимый phone-field формы и поднимаемся к ближайшему form/section/div.
+    """
+    try:
+        phone_fields = page.locator(cfg["phone"])
+        for i in range(phone_fields.count()):
+            phone = phone_fields.nth(i)
+            try:
+                if not phone.is_visible():
+                    continue
+                for xpath in ("ancestor::form", "ancestor::section", "ancestor::div"):
+                    parent = phone.locator(f"xpath={xpath}").last
+                    if parent.count() > 0 and parent.is_visible():
+                        return parent
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
+def resolve_checkaddress_container_after_click(page: Page, timeout_ms: int = 12_000):
+    detected_form, popup_container = wait_for_popup_with_fields(
+        page,
+        timeout_ms=timeout_ms,
+        form_hint="checkaddress",
+    )
+    if detected_form == "checkaddress" and popup_container is not None:
+        return detected_form, popup_container
+
+    cfg = FORM_CONFIGS["checkaddress"]
+    poll_ms = 250
+    elapsed = 0
+    while elapsed < 3_500:
+        container = find_visible_form_container_by_phone(page, cfg)
+        if container is not None:
+            print("  [CHECKADDRESS] fallback: detected visible form container by phone field")
+            return "checkaddress", container
+        page.wait_for_timeout(poll_ms)
+        elapsed += poll_ms
+    return detected_form, popup_container
+
+
 def collect_popup_buttons(
     page: Page,
     *,
@@ -3381,13 +3426,30 @@ def process_checkaddress_form(
                     continue
                 clicked_any = True
                 trigger.scroll_into_view_if_needed()
-                trigger.click(timeout=7_000, force=True)
-                page.wait_for_timeout(350)
-                detected_form, popup_container = wait_for_popup_with_fields(
-                    page,
-                    timeout_ms=12_000,
-                    form_hint="checkaddress",
-                )
+                click_modes = ("normal", "force", "js")
+                for click_mode in click_modes:
+                    if click_mode == "normal":
+                        trigger.click(timeout=7_000)
+                    elif click_mode == "force":
+                        trigger.click(timeout=7_000, force=True)
+                    else:
+                        try:
+                            trigger.evaluate(
+                                """(el) => {
+                                    el.click();
+                                    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                                }"""
+                            )
+                        except Exception:
+                            continue
+
+                    page.wait_for_timeout(450)
+                    detected_form, popup_container = resolve_checkaddress_container_after_click(
+                        page,
+                        timeout_ms=12_000,
+                    )
+                    if detected_form == "checkaddress" and popup_container is not None:
+                        break
                 if detected_form == "checkaddress" and popup_container is not None:
                     break
             except Exception as err:
