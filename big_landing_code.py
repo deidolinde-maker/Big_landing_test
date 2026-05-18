@@ -568,7 +568,7 @@ FORM_CONFIGS = {
 POPUP_BUTTON_CLASSES = {
     "connection":         "#btnup.connection_address_button, .connection_address_button, #btnup",
     "connection_card":    ".connection_address_card_button",
-    "checkaddress":       ".checkaddress_address_button",
+    "checkaddress":       ".checkaddress_address_button, #btncheckaddress",
     "undecided":          ".checkaddress-undecided",
     "moving":             ".moving_address_button",
     "profit":             ".button-lead-catcher.profit_address_button, button.profit_address_button, a.profit_address_button, .profit_address_button",
@@ -3295,7 +3295,7 @@ def process_checkaddress_form(
                 page.wait_for_timeout(350)
                 detected_form, popup_container = wait_for_popup_with_fields(
                     page,
-                    timeout_ms=4_000,
+                    timeout_ms=12_000,
                     form_hint="checkaddress",
                 )
                 if detected_form == "checkaddress" and popup_container is not None:
@@ -3305,9 +3305,10 @@ def process_checkaddress_form(
                 continue
 
         if detected_form != "checkaddress" or popup_container is None:
-            if last_click_error is not None and not clicked_any:
-                return 0, 1, f"не удалось открыть checkaddress по кнопке: {last_click_error}"
-            return 0, 1, "форма checkaddress не найдена на странице"
+            reason = "форма checkaddress не найдена на странице"
+            if last_click_error is not None:
+                reason = f"{reason} (последняя ошибка клика: {last_click_error})"
+            return 0, 1, reason
         container = popup_container
 
     filled = fill_form(page, container, "checkaddress")
