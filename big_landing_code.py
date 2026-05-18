@@ -3268,6 +3268,75 @@ def process_inline_connection_form(
     return 1, 0, None, {"connection"}
 
 
+def process_inline_undecided_form(
+    page: Page,
+    base_url: str,
+    *,
+    has_name_field: bool = False,
+    allow_root_return_after_thanks: bool = False,
+) -> tuple[int, int, str | None, set[str]]:
+    """
+    Fallback для страниц, где undecided-форма уже открыта в теле страницы
+    (без popup-триггера).
+    """
+    print("\n[INLINE-UNDECIDED] Проверка inline-формы undecided")
+    cfg = FORM_CONFIGS["undecided"]
+    container = page.locator("section, form, div").filter(
+        has=page.locator(cfg["phone"])
+    ).first
+
+    try:
+        if container.count() == 0:
+            print("  [INLINE-UNDECIDED] Форма не найдена")
+            return 0, 0, None, set()
+    except Exception:
+        print("  [INLINE-UNDECIDED] Ошибка поиска формы")
+        return 0, 0, None, set()
+
+    filled = fill_form(page, container, "undecided", has_name_field=has_name_field)
+    if not filled:
+        reason = "inline undecided не заполнена (street/house/phone)"
+        print(f"  [INLINE-UNDECIDED] ❌ {reason}")
+        return 0, 1, reason, {"undecided"}
+
+    submit = find_submit(container, "undecided")
+    if not submit:
+        reason = "кнопка отправки inline undecided не найдена"
+        print(f"  [INLINE-UNDECIDED] ❌ {reason}")
+        return 0, 1, reason, {"undecided"}
+
+    if REALLY_SUBMIT:
+        return_url_before_submit = page.url or base_url
+        ok = submit_with_confirmation(
+            page, container, "undecided",
+            timeout_ms=SUBMIT_CONFIRM_TIMEOUT_MS, attempts=2
+        )
+        if not ok:
+            reason = "подтверждение отправки inline undecided не получено"
+            print(f"  [INLINE-UNDECIDED] ❌ {reason}")
+            return 0, 1, reason, {"undecided"}
+
+        thanks_ok, thanks_reason = verify_thanks_close_and_return(
+            page,
+            return_url_before_submit,
+            allow_root_return=allow_root_return_after_thanks,
+        )
+        if not thanks_ok:
+            reason = f"после inline submit не закрыт/не отработан thanks: {thanks_reason}"
+            print(f"  [INLINE-UNDECIDED] ❌ {reason}")
+            return 0, 1, reason, {"undecided"}
+
+        nav_ok, _, nav_reason = safe_goto(page, base_url)
+        if not nav_ok:
+            reason = f"после inline submit не удалось вернуться на {base_url}: {nav_reason}"
+            print(f"  [INLINE-UNDECIDED] ❌ {reason}")
+            return 0, 1, reason, {"undecided"}
+        close_overlays(page)
+
+    print("  [INLINE-UNDECIDED] ✅ Успешно")
+    return 1, 0, None, {"undecided"}
+
+
 def process_checkaddress_form(
     page: Page,
     base_url: str,
@@ -3732,6 +3801,18 @@ def run_site_scenario(page: Page, cfg: dict):
                 skip_site_due_unavailability(site_label, "2", "попапы главной", str(e), page)
             if is_url_mode and "connection" in expected_popup_forms and "connection" not in tested_popup_forms:
                 inline_s, inline_f, inline_first_fail, inline_tested = process_inline_connection_form(
+                    page,
+                    base_url,
+                    has_name_field=has_name_field,
+                    allow_root_return_after_thanks=is_url_mode,
+                )
+                s += inline_s
+                f += inline_f
+                tested_popup_forms |= inline_tested
+                if first_fail is None and inline_first_fail:
+                    first_fail = inline_first_fail[:220]
+            if is_url_mode and "undecided" in expected_popup_forms and "undecided" not in tested_popup_forms:
+                inline_s, inline_f, inline_first_fail, inline_tested = process_inline_undecided_form(
                     page,
                     base_url,
                     has_name_field=has_name_field,

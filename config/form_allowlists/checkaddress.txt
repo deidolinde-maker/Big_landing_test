@@ -129,7 +129,6 @@ https://moskva.rtk-ru.online/all-tariffs/technologii-vygody
 https://moskva.rtk-ru.online/all-tariffs/technologii-kontrolya
 https://moskva.rtk-ru.online/all-tariffs/oblachniy
 https://moskva.rtk-ru.online/all-tariffs/technologii-obshchehiya
-https://blog.rtk-ru.online/
 https://blog.rtk-ru.online/tehnologiya-podklyucheniya-u-rostelekoma
 https://moskva.rtk-ru.online/sitemap
 https://moskva.rtk-ru.online/contacts
@@ -148,12 +147,8 @@ https://rtk-home-internet.ru/thanks
 https://rtk-internet.online
 https://rtk-internet.online/moskva
 https://rtk-internet.online/thanks
-https://rtk-internet.online/business
 http://rtk-home.ru
 http://rtk-home.ru/moskva
-https://rtk-home.ru/podklyuchenie-interneta
-https://rtk-home.ru/moskva/podklyuchenie-interneta
-https://rtk-home.ru/business
 https://beeline-ru.online/
 https://beeline-ru.online/yuzhno-sahalinsk
 https://beeline-ru.online/thanks
@@ -233,4 +228,3 @@ https://moskva.providerdom.ru/domashnij-internet/
 https://moskva.providerdom.ru/internet-i-televidenie/
 https://ttk-ru.online/
 https://ttk-internet.ru
-
