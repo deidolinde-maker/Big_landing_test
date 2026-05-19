@@ -33,6 +33,8 @@ pipeline {
     string(name: 'LOOP_DELAY_SECONDS', defaultValue: '60', description: 'Delay before scheduling next loop build.')
     string(name: 'CHAIN_NEXT_JOB', defaultValue: '', description: 'Optional: next Jenkins job name for chained 24/7 run.')
     string(name: 'CHAIN_NEXT_SCOPE', defaultValue: '', description: 'Optional: PROVIDER_SCOPE value for next chained job.')
+    booleanParam(name: 'ENABLE_PERIODIC_ARTIFACT_PURGE', defaultValue: true, description: 'Every N builds, delete archived artifacts/allure reports of previous builds for this job.')
+    string(name: 'PERIODIC_PURGE_EVERY', defaultValue: '5', description: 'Run full artifact purge every N-th build (integer >= 2).')
 
     booleanParam(name: 'RUN_CHROMIUM', defaultValue: true, description: 'Run desktop chromium profile.')
     booleanParam(name: 'RUN_FIREFOX', defaultValue: false, description: 'Run desktop firefox profile.')
@@ -81,6 +83,9 @@ pipeline {
           }
           if ((params.LOOP_DELAY_SECONDS ?: '').trim() && !((params.LOOP_DELAY_SECONDS as String) ==~ /\d+/)) {
             error('LOOP_DELAY_SECONDS must be an integer >= 0.')
+          }
+          if ((params.PERIODIC_PURGE_EVERY ?: '').trim() && !((params.PERIODIC_PURGE_EVERY as String) ==~ /\d+/)) {
+            error('PERIODIC_PURGE_EVERY must be an integer >= 2.')
           }
         }
       }
@@ -551,6 +556,44 @@ PY
               booleanParam(name: 'ALERT_RECOVERED', value: params.ALERT_RECOVERED),
               booleanParam(name: 'USE_TELEGRAM_PROXY', value: params.USE_TELEGRAM_PROXY),
             ]
+        }
+      }
+      script {
+        if (params.ENABLE_PERIODIC_ARTIFACT_PURGE) {
+          sh '''
+            set +e
+            purge_every="${PERIODIC_PURGE_EVERY:-5}"
+            if ! [ "${purge_every}" -ge 2 ] 2>/dev/null; then
+              purge_every=5
+            fi
+            if ! [ "${BUILD_NUMBER}" -ge 1 ] 2>/dev/null; then
+              echo "[PURGE] BUILD_NUMBER is not numeric, skip."
+              exit 0
+            fi
+            mod=$(( BUILD_NUMBER % purge_every ))
+            if [ "${mod}" -ne 0 ]; then
+              echo "[PURGE] Skip: build #${BUILD_NUMBER} is not each ${purge_every}-th run."
+              exit 0
+            fi
+            if [ -z "${JENKINS_HOME}" ] || [ -z "${JOB_NAME}" ]; then
+              echo "[PURGE] JENKINS_HOME or JOB_NAME is empty, skip."
+              exit 0
+            fi
+
+            job_path="${JOB_NAME//\\//\\/jobs\\/}"
+            builds_dir="${JENKINS_HOME}/jobs/${job_path}/builds"
+            if [ ! -d "${builds_dir}" ]; then
+              echo "[PURGE] Builds dir not found: ${builds_dir}"
+              exit 0
+            fi
+
+            echo "[PURGE] Running periodic purge for ${JOB_NAME} at build #${BUILD_NUMBER} (every ${purge_every})"
+            find "${builds_dir}" -mindepth 2 -maxdepth 2 -type d \\( -name archive -o -name allure-report \\) ! -path "${builds_dir}/${BUILD_NUMBER}/*" -print -exec rm -rf {} +
+            echo "[PURGE] Done."
+            exit 0
+          '''
+        } else {
+          echo 'Periodic artifact purge disabled by parameter.'
         }
       }
       sh '''
