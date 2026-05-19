@@ -1,6 +1,6 @@
 # Source: ????????? ????????.xlsx -> ????????? ????
-# TEMP_DISABLED_2026-05-19 https://rtk-ru.online/
-# TEMP_DISABLED_2026-05-19 https://rtk-ru.online/rf
+https://rtk-ru.online/
+https://rtk-ru.online/rf
 https://rtk-ru.online/coverage-map
 https://rtk-ru.online/o-kompanii
 https://rtk-ru.online/usluga-pereezd
@@ -17,7 +17,7 @@ https://rtk-ru.online/oborudovanie
 https://rtk-ru.online/wi-fi-internet
 https://moskva.rtk-ru.online
 https://perm.rtk-ru.online/solikamsk
-# TEMP_DISABLED_2026-05-19 https://moskva.rtk-ru.online/domashnij-internet
+https://moskva.rtk-ru.online/domashnij-internet
 https://moskva.rtk-ru.online/internet-tv
 https://moskva.rtk-ru.online/internet-tv-mobile
 https://moskva.rtk-ru.online/all-tariffs
