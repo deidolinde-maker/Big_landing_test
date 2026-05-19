@@ -1601,29 +1601,24 @@ def resolve_service_values_for_mode(
 
     if mode == SERVICE_MODE_VARIANTS:
         if form_type in ("profit", "business"):
-            print("  [FORM] VARIANTS: тип формы без Place — пропускаем")
+            print("  [FORM] VARIANTS: type has no Place options - skip")
             return []
         if detected_service_values:
-            print(f"  [FORM] VARIANTS: submit по Place: {', '.join(detected_service_values)}")
+            print(f"  [FORM] VARIANTS: submit by Place variants: {', '.join(detected_service_values)}")
             return detected_service_values
-        print("  [FORM] VARIANTS: Place не найден — пропускаем")
+        print("  [FORM] VARIANTS: Place options not found - skip")
         return []
 
+    # In non-variants modes we do not switch Place:
+    # default page state is used, then we fill main fields.
     if form_type in ("profit", "business"):
         return [None]
 
-    if not detected_service_values:
-        print("  [FORM] Варианты услуги Place не обнаружены — submit без переключения")
-        return [None]
-
-    if mode == SERVICE_MODE_CORE:
-        primary_value = detected_service_values[0]
-        print(f"  [FORM] CORE: используем базовый вариант услуги: {primary_value}")
-        return [primary_value]
-
-    print(f"  [FORM] Найдены варианты услуги: {', '.join(detected_service_values)}")
-    return detected_service_values
-
+    if detected_service_values:
+        print("  [FORM] Place options detected; non-variants mode: skip Place selection")
+    else:
+        print("  [FORM] Place options not detected; continue without Place selection")
+    return [None]
 
 def select_service_place_value(container, service_value: str) -> bool:
     options = _service_place_locator(container, service_value)
@@ -2967,6 +2962,7 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
             continue
 
         for service_idx, service_value in enumerate(service_values, start=1):
+            print(f"  [{label}] Form detected ({form_type}) -> start fill")
             service_label = service_value if service_value else "без выбора варианта"
             print(
                 f"  [{label}] Вариант submit {service_idx}/{len(service_values)}: {service_label}"
@@ -3462,7 +3458,7 @@ def process_checkaddress_form(
                 reason = f"{reason} (последняя ошибка клика: {last_click_error})"
             return 0, 1, reason
         container = popup_container
-
+        print("  [CHECKADDRESS] Form detected -> start fill")
     filled = fill_form(page, container, "checkaddress")
     if not filled:
         return 0, 1, "форма checkaddress не заполнена"
