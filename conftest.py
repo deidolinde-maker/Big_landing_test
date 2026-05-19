@@ -216,9 +216,17 @@ def pytest_runtest_makereport(item, call):
     report = outcome.get_result()
     setattr(item, f"rep_{report.when}", report)
 
-    if report.when == "call" and report.failed:
+    if report.when == "call":
         page = item.funcargs.get("page")
         if page is not None:
+            # Сохраняем video-объект всегда: на teardown прикрепим только при падении,
+            # а для успешных тестов удалим файл, чтобы не раздувать workspace.
+            try:
+                item._page_video = page.video
+            except Exception:
+                item._page_video = None
+
+        if report.failed and page is not None:
             try:
                 screenshot = page.screenshot(full_page=True)
                 allure.attach(
@@ -229,27 +237,35 @@ def pytest_runtest_makereport(item, call):
             except Exception as e:
                 print(f"[SCREENSHOT] Не удалось сделать скриншот: {e}")
 
-            try:
-                item._failed_page_video = page.video
-            except Exception:
-                item._failed_page_video = None
-
     if report.when == "teardown":
         rep_call = getattr(item, "rep_call", None)
+        video_obj = getattr(item, "_page_video", None)
+        if video_obj is None:
+            return
+        try:
+            video_path = Path(video_obj.path())
+        except Exception:
+            return
+
         if rep_call and rep_call.failed:
-            video_obj = getattr(item, "_failed_page_video", None)
-            if video_obj is not None:
-                try:
-                    video_path = Path(video_obj.path())
-                    if video_path.exists() and video_path.stat().st_size > 0:
-                        allure.attach.file(
-                            str(video_path),
-                            name="video_on_failure",
-                            attachment_type=allure.attachment_type.WEBM,
-                        )
-                        print(f"[VIDEO] Attached: {video_path}")
-                    else:
-                        print(f"[VIDEO] Файл видео отсутствует или пустой: {video_path}")
-                except Exception as e:
-                    print(f"[VIDEO] Не удалось прикрепить видео: {e}")
+            try:
+                if video_path.exists() and video_path.stat().st_size > 0:
+                    allure.attach.file(
+                        str(video_path),
+                        name="video_on_failure",
+                        attachment_type=allure.attachment_type.WEBM,
+                    )
+                    print(f"[VIDEO] Attached: {video_path}")
+                else:
+                    print(f"[VIDEO] Файл видео отсутствует или пустой: {video_path}")
+            except Exception as e:
+                print(f"[VIDEO] Не удалось прикрепить видео: {e}")
+        else:
+            # Успешные/пропущенные тесты не должны копить webm.
+            try:
+                if video_path.exists():
+                    video_path.unlink()
+                    print(f"[VIDEO] Removed on success: {video_path}")
+            except Exception as e:
+                print(f"[VIDEO] Не удалось удалить видео успешного теста: {e}")
 
