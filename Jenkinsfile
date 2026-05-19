@@ -4,7 +4,7 @@ pipeline {
   options {
     timestamps()
     disableConcurrentBuilds()
-    buildDiscarder(logRotator(numToKeepStr: '30', artifactNumToKeepStr: '5'))
+    buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '3'))
   }
 
   parameters {
@@ -413,7 +413,17 @@ pipeline {
         done
         exit 0
       '''
-      archiveArtifacts artifacts: 'allure-results/**, allure-results-*/**, artifacts/videos/**, telegram_message.txt, telegram_should_send.txt, notify_state.json', allowEmptyArchive: true
+      script {
+        def isSuccess = (currentBuild.currentResult ?: 'SUCCESS') == 'SUCCESS'
+        def artifactsPattern = 'allure-results/**, allure-results-*/**, telegram_message.txt, telegram_should_send.txt, notify_state.json'
+        if (!isSuccess) {
+          artifactsPattern += ', artifacts/videos/**'
+          echo 'Build is not SUCCESS: include videos in archived artifacts.'
+        } else {
+          echo 'Build SUCCESS: skip video artifacts to save disk.'
+        }
+        archiveArtifacts artifacts: artifactsPattern, allowEmptyArchive: true
+      }
       script {
         try {
           // Requires Jenkins Allure plugin. If not installed, continue without failing the build.
@@ -543,6 +553,11 @@ PY
             ]
         }
       }
+      sh '''
+        set +e
+        rm -rf artifacts/videos allure-results-* .pytest_cache pytest-cache-files-* __pycache__ || true
+        exit 0
+      '''
     }
   }
 }
