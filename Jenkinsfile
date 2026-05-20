@@ -262,6 +262,116 @@ pipeline {
           else
             suites="${FORM_SUITE}"
           fi
+          ran_suites=0
+          skipped_suites=0
+
+          suite_has_urls() {
+            brand="$1"
+            suite="$2"
+            shard_index="$3"
+            shard_total="$4"
+
+            set +e
+            check_out="$("${pybin}" - "$brand" "$suite" "$shard_index" "$shard_total" <<'PY'
+import sys
+from config.url_loader import build_site_configs_from_urls
+
+brand = sys.argv[1]
+suite = sys.argv[2]
+shard_index = int(sys.argv[3])
+shard_total = int(sys.argv[4])
+
+try:
+    built = build_site_configs_from_urls(
+        brand=brand,
+        form_suite=suite,
+        url_shard_index=shard_index,
+        url_shard_total=shard_total,
+    )
+except ValueError as exc:
+    msg = str(exc)
+    if "не найдено URL" in msg:
+        print("SKIP")
+        raise SystemExit(0)
+    print(f"ERROR::{msg}")
+    raise SystemExit(2)
+except Exception as exc:
+    print(f"ERROR::{exc}")
+    raise SystemExit(2)
+
+print("RUN" if built else "SKIP")
+PY
+)"
+            check_rc=$?
+            set -e
+
+            if [ "${check_rc}" -ne 0 ]; then
+              echo "[URL-CHECK] ${brand}/${suite} checker exited with rc=${check_rc}"
+              return 2
+            fi
+
+            case "${check_out}" in
+              RUN)
+                return 0
+                ;;
+              SKIP)
+                return 1
+                ;;
+              ERROR::*)
+                echo "[URL-CHECK] ${brand}/${suite} failed: ${check_out#ERROR::}"
+                return 2
+                ;;
+              *)
+                echo "[URL-CHECK] ${brand}/${suite} unexpected checker output: ${check_out}"
+                return 2
+                ;;
+            esac
+          }
+
+          emit_synthetic_allure_skip_if_needed() {
+            if [ "${ran_suites}" -gt 0 ]; then
+              return 0
+            fi
+            "${pybin}" - <<'PY'
+import json
+import os
+import time
+import uuid
+
+results_dir = "allure-results"
+os.makedirs(results_dir, exist_ok=True)
+
+uid = str(uuid.uuid4())
+now = int(time.time() * 1000)
+scope = os.getenv("PROVIDER_SCOPE", "unknown-scope")
+suite = os.getenv("FORM_SUITE", "all")
+
+payload = {
+    "uuid": uid,
+    "historyId": "jenkins-no-urls-matched",
+    "name": "No URLs matched for selected scope/suites",
+    "fullName": "jenkins.pipeline.no_urls_matched",
+    "status": "skipped",
+    "statusDetails": {
+        "message": f"No URLs matched for selected scope/suites (scope={scope}, form_suite={suite})",
+    },
+    "stage": "finished",
+    "start": now,
+    "stop": now,
+    "labels": [
+        {"name": "suite", "value": "Jenkins orchestration"},
+        {"name": "framework", "value": "pytest"},
+        {"name": "language", "value": "python"},
+        {"name": "host", "value": "jenkins"},
+    ],
+}
+
+path = os.path.join(results_dir, f"{uid}-result.json")
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump(payload, fh, ensure_ascii=False)
+PY
+            echo "[URL-CHECK] Added synthetic skipped Allure case (ran_suites=${ran_suites}, skipped_suites=${skipped_suites})."
+          }
 
           run_one() {
             brand="$1"
@@ -272,6 +382,18 @@ pipeline {
             shard_index="$6"
             shard_total="$7"
             suite="$8"
+
+            if suite_has_urls "${brand}" "${suite}" "${shard_index}" "${shard_total}"; then
+              ran_suites=$((ran_suites + 1))
+            else
+              rc="$?"
+              if [ "${rc}" -eq 1 ]; then
+                skipped_suites=$((skipped_suites + 1))
+                echo "[URL-CHECK] SKIP suite=${suite} brand=${brand} shard=${shard_index}/${shard_total}: no URLs for brand/suite."
+                return 0
+              fi
+              return "${rc}"
+            fi
 
             PYTEST_ARGS="big_landing_code.py --alluredir=allure-results-${mode}-${suffix}-${brand}-${suite}-s${shard_index}of${shard_total} --timeout=600 -s --service-mode=${mode} --browser=${browser} --blocking-profile=${BLOCKING_PROFILE} --url-brand=${brand} --form-suite=${suite} --url-shard-index=${shard_index} --url-shard-total=${shard_total}"
             if [ -n "${profile}" ]; then
@@ -385,6 +507,9 @@ pipeline {
               cp -R "${d}"/. allure-results/
             fi
           done
+
+          echo "[URL-CHECK] Suite counters: ran=${ran_suites}, skipped=${skipped_suites}"
+          emit_synthetic_allure_skip_if_needed
         '''
           }
 
