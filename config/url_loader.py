@@ -39,7 +39,7 @@ def _resolve_urls_dir(urls_dir: str | Path | None = None) -> Path:
 
 
 def _normalize_url(raw: str) -> str | None:
-    line = (raw or "").strip()
+    line = (raw or "").lstrip("\ufeff").strip()
     if not line or line.startswith("#"):
         return None
 
