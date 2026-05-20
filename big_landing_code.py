@@ -84,6 +84,10 @@ CONNECTION_TRIGGER_BUSINESS_FORM_URLS = {
     "https://mts-home.online/business",
     "https://moskva.mts-home.online/business",
 }
+HOUSE_SUGGEST_EXTENDED_TIMEOUT_URLS = {
+    "https://mts-internet.online/sankt-peterburg",
+    "https://mts-internet.online/sankt-peterburg/jk-ogni-zaliva",
+}
 
 
 def _normalize_runtime_url(url: str) -> str:
@@ -109,6 +113,13 @@ def _use_soft_house_retry(page: Page, form_type: str) -> bool:
 def _soft_house_retry_values(page: Page) -> tuple[str, ...]:
     current_url = _normalize_runtime_url(page.url or "")
     return SOFT_HOUSE_RETRY_VALUES_BY_URL.get(current_url, SOFT_HOUSE_RETRY_VALUES)
+
+
+def _house_suggest_timeout_ms(page: Page, base_timeout_ms: int) -> int:
+    current_url = _normalize_runtime_url(page.url or "")
+    if current_url in HOUSE_SUGGEST_EXTENDED_TIMEOUT_URLS:
+        return max(base_timeout_ms, 6000)
+    return base_timeout_ms
 
 
 def _resolve_expected_form_alias(
@@ -2032,6 +2043,7 @@ def fill_form(page: Page, container, form_type: str,
                         suggest_timeout = browser_timeout(
                             page, SUGGEST_TIMEOUT_MS, FIREFOX_SUGGEST_TIMEOUT_MS
                         )
+                        suggest_timeout = _house_suggest_timeout_ms(page, suggest_timeout)
 
                         if _use_soft_house_retry(page, form_type):
                             print(
