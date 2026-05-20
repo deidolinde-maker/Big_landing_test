@@ -304,11 +304,14 @@ def expects_connection_card_trigger(page_url: str) -> bool:
 
 def optional_expected_form_types(page_url: str) -> list[str]:
     current_url = canonicalize_url(page_url)
+    host = (urlsplit(current_url).netloc or "").lower()
     optional: set[str] = set()
     # EXPRESS может быть скрыт A/B-тестом на согласованных URL.
     if _is_allowlisted(current_url, EXPRESS_URL_ALLOWLIST):
         optional.add("express-connection")
-    # PROFIT на mts-home-online.ru может отсутствовать в A/B-тесте — это не ошибка.
-    if _is_allowlisted(current_url, {canonicalize_url("https://mts-home-online.ru/")}):
+    # На mts-home-online.ru popup-формы profit/express могут отсутствовать из-за A/B-теста.
+    # Для всего хоста это не считается ошибкой шага.
+    if host == "mts-home-online.ru":
         optional.add("profit")
+        optional.add("express-connection")
     return sorted(optional)
