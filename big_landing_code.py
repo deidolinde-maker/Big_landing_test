@@ -88,6 +88,9 @@ HOUSE_SUGGEST_EXTENDED_TIMEOUT_URLS = {
     "https://mts-internet.online/sankt-peterburg",
     "https://mts-internet.online/sankt-peterburg/jk-ogni-zaliva",
 }
+HOUSE_SUGGEST_EXTENDED_TIMEOUT_PREFIXES = (
+    "https://mts-internet.online/sankt-peterburg/",
+)
 
 
 def _normalize_runtime_url(url: str) -> str:
@@ -117,7 +120,10 @@ def _soft_house_retry_values(page: Page) -> tuple[str, ...]:
 
 def _house_suggest_timeout_ms(page: Page, base_timeout_ms: int) -> int:
     current_url = _normalize_runtime_url(page.url or "")
-    if current_url in HOUSE_SUGGEST_EXTENDED_TIMEOUT_URLS:
+    if (
+        current_url in HOUSE_SUGGEST_EXTENDED_TIMEOUT_URLS
+        or any(current_url.startswith(prefix) for prefix in HOUSE_SUGGEST_EXTENDED_TIMEOUT_PREFIXES)
+    ):
         return max(base_timeout_ms, 6000)
     return base_timeout_ms
 
