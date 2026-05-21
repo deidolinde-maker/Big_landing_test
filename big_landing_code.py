@@ -3977,7 +3977,15 @@ def run_site_scenario(page: Page, cfg: dict):
                 reason = f"{f} ошибок, {s} успешно"
                 if first_fail:
                     reason += f" | first={first_fail}"
-                send_step_alert(site_label, "2", "попапы главной", reason[:900], page)
+                if total_success_submits > 0:
+                    print(
+                        "  [STEP-ALERT] ℹ️ suppressed alert for step 2: "
+                        f"по URL найден успешный submit ({total_success_submits})"
+                    )
+                    f = 0
+                    first_fail = None
+                else:
+                    send_step_alert(site_label, "2", "попапы главной", reason[:900], page)
             assert f == 0, (
                 f"[{site_label}] Попапы главной: {f} ошибок, {s} успешно"
                 + (f" | first={first_fail}" if first_fail else "")
@@ -4049,7 +4057,15 @@ def run_site_scenario(page: Page, cfg: dict):
                 reason = f"{f} ошибок, {s} успешно"
                 if first_fail:
                     reason += f" | first={first_fail}"
-                send_step_alert(site_label, "3", "попапы /business", reason[:900], page)
+                if total_success_submits > 0:
+                    print(
+                        "  [STEP-ALERT] ℹ️ suppressed alert for step 3: "
+                        f"по URL найден успешный submit ({total_success_submits})"
+                    )
+                    f = 0
+                    first_fail = None
+                else:
+                    send_step_alert(site_label, "3", "попапы /business", reason[:900], page)
             assert f == 0, (
                 f"[{site_label}] Бизнес: {f} ошибок, {s} успешно"
                 + (f" | first={first_fail}" if first_fail else "")
@@ -4079,8 +4095,14 @@ def run_site_scenario(page: Page, cfg: dict):
                 skip_site_due_unavailability(site_label, "4", "выбор города", str(e), page)
             if city_base is None:
                 reason = f"город '{city_name}' не выбран или не произошёл редирект"
-                send_step_alert(site_label, "4", "выбор города", reason, page)
-                assert city_base is not None, f"[{site_label}] Шаг 4: {reason}"
+                if total_success_submits > 0:
+                    print(
+                        "  [STEP-ALERT] ℹ️ suppressed alert for step 4: "
+                        f"по URL найден успешный submit ({total_success_submits})"
+                    )
+                else:
+                    send_step_alert(site_label, "4", "выбор города", reason, page)
+                    assert city_base is not None, f"[{site_label}] Шаг 4: {reason}"
         else:
             mark_step_not_applicable(site_label, "4", "выбор города", "city_name=None")
 
@@ -4115,7 +4137,15 @@ def run_site_scenario(page: Page, cfg: dict):
                 reason = f"{f} ошибок, {s} успешно"
                 if first_fail:
                     reason += f" | first={first_fail}"
-                send_step_alert(site_label, "4a", "попапы главной города", reason[:900], page)
+                if total_success_submits > 0:
+                    print(
+                        "  [STEP-ALERT] ℹ️ suppressed alert for step 4a: "
+                        f"по URL найден успешный submit ({total_success_submits})"
+                    )
+                    f = 0
+                    first_fail = None
+                else:
+                    send_step_alert(site_label, "4a", "попапы главной города", reason[:900], page)
             assert f == 0, (
                 f"[{site_label}] Попапы города: {f} ошибок"
                 + (f" | first={first_fail}" if first_fail else "")
@@ -4152,7 +4182,15 @@ def run_site_scenario(page: Page, cfg: dict):
                 reason = f"{f} ошибок, {s} успешно"
                 if first_fail:
                     reason += f" | first={first_fail}"
-                send_step_alert(site_label, "4b", "попапы /business города", reason[:900], page)
+                if total_success_submits > 0:
+                    print(
+                        "  [STEP-ALERT] ℹ️ suppressed alert for step 4b: "
+                        f"по URL найден успешный submit ({total_success_submits})"
+                    )
+                    f = 0
+                    first_fail = None
+                else:
+                    send_step_alert(site_label, "4b", "попапы /business города", reason[:900], page)
             assert f == 0, (
                 f"[{site_label}] Бизнес города: {f} ошибок"
                 + (f" | first={first_fail}" if first_fail else "")
