@@ -91,6 +91,9 @@ HOUSE_SUGGEST_EXTENDED_TIMEOUT_URLS = {
 HOUSE_SUGGEST_EXTENDED_TIMEOUT_PREFIXES = (
     "https://mts-internet.online/sankt-peterburg/",
 )
+STREET_VALUE_BY_URL = {
+    "https://mts-internet.online/sankt-peterburg/jk-ogni-zaliva": "Ленсовета",
+}
 
 
 def _normalize_runtime_url(url: str) -> str:
@@ -126,6 +129,11 @@ def _house_suggest_timeout_ms(page: Page, base_timeout_ms: int) -> int:
     ):
         return max(base_timeout_ms, 6000)
     return base_timeout_ms
+
+
+def _street_value_for_url(page: Page) -> str:
+    current_url = _normalize_runtime_url(page.url or "")
+    return STREET_VALUE_BY_URL.get(current_url, "Ленина")
 
 
 def _resolve_expected_form_alias(
@@ -1910,6 +1918,7 @@ def fill_form(page: Page, container, form_type: str,
             return False
 
     def fill_street_and_pick() -> bool:
+        street_value = _street_value_for_url(page)
         street_local = container.locator(cfg["street"]).first
         if street_local.count() == 0 or not street_local.is_visible():
             print(f"  [FORM] Address field not found ({cfg['street']})")
@@ -1921,13 +1930,13 @@ def fill_form(page: Page, container, form_type: str,
             street_local.fill("")
         except Exception:
             pass
-        street_local.fill("\u041b\u0435\u043d\u0438\u043d\u0430")
+        street_local.fill(street_value)
 
         if no_suggest:
             print("  [FORM] Address entered (no suggestion)")
             return True
 
-        print("  [FORM] Street entered, waiting suggestion...")
+        print(f"  [FORM] Street '{street_value}' entered, waiting suggestion...")
         suggest_timeout = browser_timeout(page, SUGGEST_TIMEOUT_MS, FIREFOX_SUGGEST_TIMEOUT_MS)
         choose_first_suggestion(page, timeout_ms=suggest_timeout, field=street_local)
         return True
