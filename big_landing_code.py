@@ -655,6 +655,8 @@ SUGGESTION_SELECTORS = [
     ".autocomplete__item", ".autocomplete-item", ".ui-menu-item",
     "[class*='suggest'] li", "[class*='autocomplete'] li",
     "[class*='dropdown'] li",
+    "#street-list div", "#street-list li", "#street-list [data-value]",
+    "#house-list div", "#house-list li", "#house-list [data-value]",
 ]
 
 SERVICE_PLACE_VALUES = [
@@ -1563,6 +1565,30 @@ def choose_first_suggestion(
     field=None,
     allow_keyboard_fallback: bool = True,
 ) -> bool:
+    def click_suggestion_item(item) -> bool:
+        # Some checkaddress widgets render suggestions inside custom wrappers;
+        # try multiple click strategies before giving up.
+        try:
+            item.scroll_into_view_if_needed()
+        except Exception:
+            pass
+        try:
+            item.click(timeout=3000, force=True)
+            return True
+        except Exception:
+            pass
+        try:
+            item.click(timeout=3000)
+            return True
+        except Exception:
+            pass
+        try:
+            item.dispatch_event("click")
+            return True
+        except Exception:
+            pass
+        return False
+
     poll_ms = 150
     elapsed = 0
     while elapsed < timeout_ms:
@@ -1573,9 +1599,9 @@ def choose_first_suggestion(
                 try:
                     if item.is_visible() and (item.inner_text() or "").strip():
                         print(f"  [SUGGEST] '{item.inner_text().strip()[:50]}'")
-                        item.click(timeout=3000, force=True)
-                        page.wait_for_timeout(300)
-                        return True
+                        if click_suggestion_item(item):
+                            page.wait_for_timeout(300)
+                            return True
                 except Exception:
                     pass
         page.wait_for_timeout(poll_ms)
