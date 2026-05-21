@@ -705,7 +705,7 @@ PY
               exit 0
             fi
 
-            job_path="${JOB_NAME//\\//\\/jobs\\/}"
+            job_path="$(printf '%s' "${JOB_NAME}" | sed 's#/#/jobs/#g')"
             builds_dir="${JENKINS_HOME}/jobs/${job_path}/builds"
             if [ ! -d "${builds_dir}" ]; then
               echo "[PURGE] Builds dir not found: ${builds_dir}"
@@ -729,4 +729,3 @@ PY
     }
   }
 }
-
