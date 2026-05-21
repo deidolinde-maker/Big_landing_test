@@ -94,6 +94,10 @@ HOUSE_SUGGEST_EXTENDED_TIMEOUT_PREFIXES = (
 STREET_VALUE_BY_URL = {
     "https://mts-internet.online/sankt-peterburg/jk-ogni-zaliva": "Ленсовета",
 }
+STREET_VALUE_BY_PREFIX = {
+    "https://mts-internet.online/sankt-peterburg": "Ленсовета",
+    "https://mts-internet.online/sankt-peterburg/": "Ленсовета",
+}
 
 
 def _normalize_runtime_url(url: str) -> str:
@@ -133,7 +137,12 @@ def _house_suggest_timeout_ms(page: Page, base_timeout_ms: int) -> int:
 
 def _street_value_for_url(page: Page) -> str:
     current_url = _normalize_runtime_url(page.url or "")
-    return STREET_VALUE_BY_URL.get(current_url, "Ленина")
+    if current_url in STREET_VALUE_BY_URL:
+        return STREET_VALUE_BY_URL[current_url]
+    for prefix, value in STREET_VALUE_BY_PREFIX.items():
+        if current_url.startswith(prefix):
+            return value
+    return "Ленина"
 
 
 def _resolve_expected_form_alias(
