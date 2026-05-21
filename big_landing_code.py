@@ -3856,6 +3856,8 @@ def run_site_scenario(page: Page, cfg: dict):
     expected_popup_forms = expected_forms - {"checkaddress", "business"}
     optional_popup_forms = optional_expected_forms - {"checkaddress", "business"}
     expected_business_forms = {"business"} if "business" in expected_forms else set()
+    total_success_submits = 0
+    deferred_checkaddress_reason: str | None = None
 
     print(f"\n{'#'*55}\n# САЙТ: {site_label} | MODE: {service_mode}\n{'#'*55}")
     if is_url_mode:
@@ -3883,13 +3885,16 @@ def run_site_scenario(page: Page, cfg: dict):
             goto_or_handle_step(page, base_url, site_label, "1", "форма checkaddress")
             close_overlays(page)
 
-            _, checkaddress_failed, step_reason = process_checkaddress_form(
+            checkaddress_success, checkaddress_failed, step_reason = process_checkaddress_form(
                 page,
                 base_url,
                 allow_root_return_after_thanks=is_url_mode,
             )
+            total_success_submits += checkaddress_success
             if checkaddress_failed > 0 and step_reason:
-                send_step_alert(site_label, "1", "форма checkaddress", step_reason, page)
+                # Шумоподавление: отправляем step-alert по checkaddress только
+                # если в рамках текущего URL не было ни одного успешного submit.
+                deferred_checkaddress_reason = step_reason[:900]
         else:
             reason = (
                 "не входит в expected forms текущего URL"
@@ -3967,6 +3972,7 @@ def run_site_scenario(page: Page, cfg: dict):
                     if first_fail is None:
                         first_fail = detail[:220]
                     print(f"  [POPUP] ❌ {detail}")
+            total_success_submits += s
             if f > 0:
                 reason = f"{f} ошибок, {s} успешно"
                 if first_fail:
@@ -4038,6 +4044,7 @@ def run_site_scenario(page: Page, cfg: dict):
                 )
                 f = 0
                 first_fail = None
+            total_success_submits += s
             if f > 0:
                 reason = f"{f} ошибок, {s} успешно"
                 if first_fail:
@@ -4103,6 +4110,7 @@ def run_site_scenario(page: Page, cfg: dict):
                 )
             except SiteUnavailableError as e:
                 skip_site_due_unavailability(site_label, "4a", "попапы главной города", str(e), page)
+            total_success_submits += s
             if f > 0:
                 reason = f"{f} ошибок, {s} успешно"
                 if first_fail:
@@ -4139,6 +4147,7 @@ def run_site_scenario(page: Page, cfg: dict):
                 )
             except SiteUnavailableError as e:
                 skip_site_due_unavailability(site_label, "4b", "попапы /business города", str(e), page)
+            total_success_submits += s
             if f > 0:
                 reason = f"{f} ошибок, {s} успешно"
                 if first_fail:
@@ -4147,6 +4156,15 @@ def run_site_scenario(page: Page, cfg: dict):
             assert f == 0, (
                 f"[{site_label}] Бизнес города: {f} ошибок"
                 + (f" | first={first_fail}" if first_fail else "")
+            )
+
+    if deferred_checkaddress_reason:
+        if total_success_submits <= 0:
+            send_step_alert(site_label, "1", "форма checkaddress", deferred_checkaddress_reason, page)
+        else:
+            print(
+                "  [STEP-ALERT] ℹ️ suppressed checkaddress alert: "
+                f"по URL найден успешный submit ({total_success_submits})"
             )
 
     print(f"\n{'#'*55}\n# ✅ ГОТОВО: {site_label}\n{'#'*55}\n")
