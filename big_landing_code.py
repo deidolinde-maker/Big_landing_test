@@ -3947,6 +3947,16 @@ def run_site_scenario(page: Page, cfg: dict):
                     has_name_field=has_name_field,
                     allow_root_return_after_thanks=is_url_mode,
                 )
+                # Для A/B-кейсов (например, mts-home-online.ru) undecided может быть optional:
+                # если форма не подтвердилась/не заполнилась, не считаем это ошибкой шага.
+                if "undecided" in optional_popup_forms and inline_f > 0 and inline_s == 0:
+                    optional_reason = inline_first_fail or "inline undecided недоступна"
+                    print(
+                        "  [INLINE-UNDECIDED] ℹ️ optional форма не подтверждена "
+                        f"(допустимо): {optional_reason}"
+                    )
+                    inline_f = 0
+                    inline_first_fail = None
                 s += inline_s
                 f += inline_f
                 tested_popup_forms |= inline_tested
