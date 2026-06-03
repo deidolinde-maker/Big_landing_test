@@ -113,6 +113,23 @@ def _normalize_runtime_url(url: str) -> str:
     return f"{scheme}://{host}{path}"
 
 
+def _is_beeline_runtime_url(url: str) -> bool:
+    host = (urlsplit(_normalize_runtime_url(url)).netloc or "").lower()
+    if not host:
+        return False
+    return any(
+        host == suffix or host.endswith("." + suffix)
+        for suffix in (
+            "beeline-ru.online",
+            "online-beeline.ru",
+            "beeline-internet.online",
+            "beeline-ru.pro",
+            "beeline-home.online",
+            "beelline-internet.ru",
+        )
+    )
+
+
 def _use_soft_house_retry(page: Page, form_type: str) -> bool:
     if form_type not in {"profit", "connection", "checkaddress", "moving", "express-connection"}:
         return False
@@ -2205,6 +2222,20 @@ def fill_form(page: Page, container, form_type: str,
     phone.click(force=True)
     phone_delay = browser_timeout(page, PHONE_INPUT_DELAY_MS, FIREFOX_PHONE_INPUT_DELAY_MS)
     phone.press_sequentially(PHONE_TEST_VALUE, delay=phone_delay)
+    if _is_beeline_runtime_url(page.url or ""):
+        # Некоторые Beeline-CF7 маски валидируют номер только после blur / короткой паузы.
+        # Это ближе к ручному сценарию и снижает ложные validation_failed на submit.
+        try:
+            page.wait_for_timeout(browser_timeout(page, 250, 400))
+        except Exception:
+            pass
+        try:
+            phone.blur()
+        except Exception:
+            try:
+                page.keyboard.press("Tab")
+            except Exception:
+                pass
     try:
         phone_digits = "".join(ch for ch in (phone.input_value() or "") if ch.isdigit())
         print(f"  [FORM] Телефон введён ({len(phone_digits)} digits)")
