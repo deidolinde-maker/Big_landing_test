@@ -1958,6 +1958,7 @@ def fill_form(page: Page, container, form_type: str,
     cfg        = FORM_CONFIGS[form_type]
     no_house   = cfg.get("no_house", False)
     no_suggest = cfg.get("no_suggest", False)
+    street_local = container.locator(cfg["street"]).first
     if _is_connection_business_like_context(page, form_type):
         # On specific /business URLs connection trigger opens business-like form
         # without house/suggest logic.
@@ -1971,7 +1972,6 @@ def fill_form(page: Page, container, form_type: str,
 
     def fill_street_and_pick() -> bool:
         street_value = _street_value_for_url(page)
-        street_local = container.locator(cfg["street"]).first
         if street_local.count() == 0 or not street_local.is_visible():
             print(f"  [FORM] Address field not found ({cfg['street']})")
             return False
@@ -1991,6 +1991,26 @@ def fill_form(page: Page, container, form_type: str,
         print(f"  [FORM] Street '{street_value}' entered, waiting suggestion...")
         suggest_timeout = browser_timeout(page, SUGGEST_TIMEOUT_MS, FIREFOX_SUGGEST_TIMEOUT_MS)
         choose_first_suggestion(page, timeout_ms=suggest_timeout, field=street_local)
+        if _is_beeline_runtime_url(page.url or "") and form_type == "checkaddress":
+            house_sel = cfg.get("house")
+            if house_sel:
+                house_probe = container.locator(house_sel).first
+                try:
+                    expect(house_probe).to_be_enabled(
+                        timeout=browser_timeout(page, 1200, 1800)
+                    )
+                except Exception:
+                    print("  [FORM] Beeline checkaddress: street selection did not unlock house, retrying commit")
+                    try:
+                        street_local.scroll_into_view_if_needed()
+                        street_local.click(force=True)
+                        page.wait_for_timeout(120)
+                        page.keyboard.press("ArrowDown")
+                        page.wait_for_timeout(120)
+                        page.keyboard.press("Enter")
+                        page.wait_for_timeout(250)
+                    except Exception:
+                        pass
         return True
 
     def refill_house_value(house_field, house_value: str) -> str:
@@ -2106,7 +2126,26 @@ def fill_form(page: Page, container, form_type: str,
                         house_enable_timeout = browser_timeout(
                             page, HOUSE_ENABLE_TIMEOUT_MS, FIREFOX_HOUSE_ENABLE_TIMEOUT_MS
                         )
-                        expect(house).to_be_enabled(timeout=house_enable_timeout)
+                        if _is_beeline_runtime_url(page.url or "") and form_type == "checkaddress":
+                            try:
+                                expect(house).to_be_enabled(timeout=house_enable_timeout)
+                            except Exception:
+                                print("  [FORM] Beeline checkaddress: house stayed disabled, retrying street commit")
+                                try:
+                                    street_local.scroll_into_view_if_needed()
+                                    street_local.click(force=True)
+                                    page.wait_for_timeout(120)
+                                    page.keyboard.press("ArrowDown")
+                                    page.wait_for_timeout(120)
+                                    page.keyboard.press("Enter")
+                                    page.wait_for_timeout(250)
+                                except Exception:
+                                    pass
+                                expect(
+                                    house,
+                                ).to_be_enabled(timeout=browser_timeout(page, 2500, 4000))
+                        else:
+                            expect(house).to_be_enabled(timeout=house_enable_timeout)
                         suggest_timeout = browser_timeout(
                             page, SUGGEST_TIMEOUT_MS, FIREFOX_SUGGEST_TIMEOUT_MS
                         )
