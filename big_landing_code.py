@@ -130,6 +130,9 @@ def _is_beeline_runtime_url(url: str) -> bool:
     )
 
 
+SUPPRESS_BEELINE_CHECKADDRESS_ALERTS = True
+
+
 def _use_soft_house_retry(page: Page, form_type: str) -> bool:
     if form_type not in {"profit", "connection", "checkaddress", "moving", "express-connection"}:
         return False
@@ -4278,7 +4281,13 @@ def run_site_scenario(page: Page, cfg: dict):
 
     if deferred_checkaddress_reason:
         if total_success_submits <= 0:
-            send_step_alert(site_label, "1", "форма checkaddress", deferred_checkaddress_reason, page)
+            if SUPPRESS_BEELINE_CHECKADDRESS_ALERTS and _is_beeline_runtime_url(base_url):
+                print(
+                    "  [STEP-ALERT] ℹ️ suppressed temporary Beeline checkaddress alert: "
+                    f"{deferred_checkaddress_reason}"
+                )
+            else:
+                send_step_alert(site_label, "1", "форма checkaddress", deferred_checkaddress_reason, page)
         else:
             print(
                 "  [STEP-ALERT] ℹ️ suppressed checkaddress alert: "
