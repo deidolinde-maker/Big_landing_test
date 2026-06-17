@@ -131,6 +131,23 @@ def _is_beeline_runtime_url(url: str) -> bool:
 
 
 SUPPRESS_BEELINE_CHECKADDRESS_ALERTS = True
+SUPPRESS_MTS_CHECKADDRESS_ALERTS = True
+
+
+def _is_mts_runtime_url(url: str) -> bool:
+    host = (urlsplit(_normalize_runtime_url(url)).netloc or "").lower()
+    if not host:
+        return False
+    return any(
+        host == suffix or host.endswith("." + suffix)
+        for suffix in (
+            "mts-home.online",
+            "mts-home-online.ru",
+            "mts-home-gpon.ru",
+            "internet-mts-home.online",
+            "mts-internet.online",
+        )
+    )
 
 
 def _use_soft_house_retry(page: Page, form_type: str) -> bool:
@@ -4281,9 +4298,12 @@ def run_site_scenario(page: Page, cfg: dict):
 
     if deferred_checkaddress_reason:
         if total_success_submits <= 0:
-            if SUPPRESS_BEELINE_CHECKADDRESS_ALERTS and _is_beeline_runtime_url(base_url):
+            if (
+                (SUPPRESS_BEELINE_CHECKADDRESS_ALERTS and _is_beeline_runtime_url(base_url))
+                or (SUPPRESS_MTS_CHECKADDRESS_ALERTS and _is_mts_runtime_url(base_url))
+            ):
                 print(
-                    "  [STEP-ALERT] ℹ️ suppressed temporary Beeline checkaddress alert: "
+                    "  [STEP-ALERT] ℹ️ suppressed temporary MTS/Beeline checkaddress alert: "
                     f"{deferred_checkaddress_reason}"
                 )
             else:
