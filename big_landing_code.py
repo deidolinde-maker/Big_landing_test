@@ -93,6 +93,7 @@ HOUSE_SUGGEST_EXTENDED_TIMEOUT_PREFIXES = (
 )
 STREET_VALUE_BY_URL = {
     "https://shcherbinka.mts-home.online/address/ul-rabocaja-id10443": "Чехова",
+    "https://shcherbinka.mts-home.online/address/ul-rabocaja-id104433": "Чехова",
     "https://beeline-ru.pro/moskovskaya_oblast": "Чехова",
     "https://mts-internet.online/sankt-peterburg/jk-ogni-zaliva": "Ленсовета",
 }
