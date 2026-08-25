@@ -279,14 +279,6 @@
     ],
     "force_present": []
   },
-  "https://mts-home.online/business": {
-    "missing": [
-      "undecided"
-    ],
-    "force_present": [
-      "business"
-    ]
-  },
   "https://mts-home.online/connect": {
     "missing": [
       "undecided"
