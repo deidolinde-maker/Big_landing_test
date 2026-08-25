@@ -517,7 +517,8 @@ PY
             withCredentials([
               string(credentialsId: 'telegram_proxy_url', variable: 'TELEGRAM_PROXY_URL'),
               string(credentialsId: 'telegram_proxy_auth_secret', variable: 'TELEGRAM_PROXY_AUTH_SECRET'),
-              string(credentialsId: 'telegram_proxy_global_test', variable: 'TELEGRAM_PROXY_CREDS')
+              // string(credentialsId: 'telegram_proxy_global_test', variable: 'TELEGRAM_PROXY_CREDS')
+              string(credentialsId: 'tg_proxy_creds_survarius', variable: 'TELEGRAM_PROXY_CREDS')
             ]) {
               echo 'Telegram proxy credentials loaded from Jenkins credentials store.'
               runMatrix()
@@ -620,7 +621,8 @@ PY
           withCredentials([
             string(credentialsId: 'telegram_proxy_url', variable: 'TELEGRAM_PROXY_URL'),
             string(credentialsId: 'telegram_proxy_auth_secret', variable: 'TELEGRAM_PROXY_AUTH_SECRET'),
-            string(credentialsId: 'telegram_proxy_global_test', variable: 'TELEGRAM_PROXY_CREDS')
+            // string(credentialsId: 'telegram_proxy_global_test', variable: 'TELEGRAM_PROXY_CREDS')
+            string(credentialsId: 'tg_proxy_creds_survarius', variable: 'TELEGRAM_PROXY_CREDS')
           ]) {
             notifySummary()
           }
