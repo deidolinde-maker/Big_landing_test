@@ -68,7 +68,7 @@ https://moskva.mts-home.online/all-tariffs/mts-bolshe
 https://moskva.mts-home.online/all-tariffs/mts-kak-hochesh
 https://moskva.mts-home.online/all-tariffs/mts-proshche
 https://moskva.mts-home.online/all-tariffs/mts-super
-https://moskva.mts-home.online/business
+# https://moskva.mts-home.online/business
 https://moskva.mts-home.online/pokrytie-4-5g
 https://moskva.mts-home.online/all-tariffs/mts-doma-horosho
 https://moskva.mts-home.online/all-tariffs/mts-doma-otlichno

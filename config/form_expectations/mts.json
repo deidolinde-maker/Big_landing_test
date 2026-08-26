@@ -146,14 +146,6 @@
     ],
     "force_present": []
   },
-  "https://moskva.mts-home.online/business": {
-    "missing": [
-      "undecided"
-    ],
-    "force_present": [
-      "business"
-    ]
-  },
   "https://moskva.mts-home.online/contacts": {
     "missing": [
       "undecided"

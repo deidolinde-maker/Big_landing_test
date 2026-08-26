@@ -55,7 +55,7 @@ https://moskva.mts-home.online/sitemap
 https://moskva.mts-home.online/offices
 https://moskva.mts-home.online/contacts
 https://moskva.mts-home.online/support
-https://moskva.mts-home.online/business
+# https://moskva.mts-home.online/business
 https://moskva.mts-home.online/pokrytie-4-5g
 https://mts-home-gpon.ru/
 https://mts-home-gpon.ru/moskva
