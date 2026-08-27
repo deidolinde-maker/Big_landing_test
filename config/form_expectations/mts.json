@@ -213,14 +213,6 @@
     ],
     "force_present": []
   },
-  "https://mts-home-gpon.ru/business": {
-    "missing": [
-      "undecided"
-    ],
-    "force_present": [
-      "business"
-    ]
-  },
   "https://mts-home-online.ru/business": {
     "missing": [
       "undecided"
