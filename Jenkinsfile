@@ -64,6 +64,7 @@ pipeline {
     ALERT_SUMMARY_ENABLED = "${params.ALERT_SUMMARY}"
     ALERT_RECOVERED_ENABLED = "${params.ALERT_RECOVERED}"
     NOTIFY_MODE = 'twice_daily'
+    SUMMARY_STATE_FILE = '/var/lib/jenkins/shared/big_landing_test/summary_state.json'
   }
 
   stages {

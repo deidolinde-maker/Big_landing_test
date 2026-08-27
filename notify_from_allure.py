@@ -260,6 +260,8 @@ def save_summary_state(last_sent_slot: str, runs: list[dict]) -> None:
         "runs": runs,
     }
     try:
+        if SUMMARY_STATE_FILE.parent:
+            SUMMARY_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
         SUMMARY_STATE_FILE.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
