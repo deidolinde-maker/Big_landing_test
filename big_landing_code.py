@@ -2840,8 +2840,11 @@ def process_auto_profit_popup(
                 allow_root_return=allow_root_return_after_thanks,
             )
             if not thanks_ok:
-                log_error("thanks_return_failed", page, site_label, extra=f"auto profit popup | {thanks_reason}")
-                return 0, 1, "AUTO-PROFIT code=thanks_return_failed"[:220], True
+                print(
+                    "  [AUTO-PROFIT] ⚠️ Submit подтверждён, "
+                    f"но возврат после Thanks не завершён: {thanks_reason}"
+                )
+                return 1, 0, None, True
             return 1, 0, None, True
 
         log_error("no_confirmation", page, site_label, extra="auto profit popup")
@@ -3237,13 +3240,12 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
                         allow_root_return=allow_root_return_after_thanks,
                     )
                     if not thanks_ok:
-                        log_error(
-                            "thanks_return_failed",
-                            page,
-                            site_label,
-                            extra=f"service={service_label} | {thanks_reason}",
+                        print(
+                            f"  [{label}] ⚠️ Submit подтверждён ({service_label}), "
+                            f"но возврат после Thanks не завершён: {thanks_reason}"
                         )
-                        register_failure("thanks_return_failed", f"service={service_label} | {thanks_reason}")
+                        success += 1
+                        successful_form_types.add(reported_form_type)
                         continue
                     success += 1
                     successful_form_types.add(reported_form_type)
