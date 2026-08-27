@@ -20,6 +20,7 @@ OUT_FLAG_FILE = Path("telegram_should_send.txt")
 
 STATE_FILE = Path(os.getenv("NOTIFY_STATE_FILE", "notify_state.json"))
 STATE_URL = os.getenv("NOTIFY_STATE_URL", "").strip()
+SUMMARY_STATE_FILE = Path(os.getenv("SUMMARY_STATE_FILE", "summary_state.json"))
 
 NORMAL_ALERT_MAX_PER_SITE = 5
 MASS_ALERT_SITE_THRESHOLD = 5
@@ -52,6 +53,7 @@ ALERT_DAILY_SUMMARY_ENABLED = env_bool("ALERT_DAILY_SUMMARY_ENABLED", True)
 NOTIFY_MODE = (os.getenv("NOTIFY_MODE") or "run").strip().lower()
 MSK_TZ = timezone(timedelta(hours=3))
 DEFAULT_FORM_TITLE = "заявки"
+SUMMARY_SEND_HOURS = (9, 17)
 
 
 STEP_PATTERNS: list[tuple[str, str]] = [
@@ -235,6 +237,110 @@ def save_current_state(failed_sites: set[str], failed_signatures: set[str]) -> N
         pass
 
 
+def load_summary_state() -> dict:
+    default_state = {"last_sent_slot": "", "runs": []}
+    try:
+        if SUMMARY_STATE_FILE.exists():
+            data = json.loads(SUMMARY_STATE_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                runs = data.get("runs") or []
+                return {
+                    "last_sent_slot": str(data.get("last_sent_slot") or ""),
+                    "runs": runs if isinstance(runs, list) else [],
+                }
+    except Exception:
+        pass
+    return default_state
+
+
+def save_summary_state(last_sent_slot: str, runs: list[dict]) -> None:
+    payload = {
+        "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "last_sent_slot": last_sent_slot,
+        "runs": runs,
+    }
+    try:
+        SUMMARY_STATE_FILE.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+def current_summary_slot(now: datetime | None = None) -> tuple[str, datetime]:
+    current = now or datetime.now(MSK_TZ)
+    candidates = [
+        datetime(current.year, current.month, current.day, hour, tzinfo=MSK_TZ)
+        for hour in SUMMARY_SEND_HOURS
+    ]
+    due = [item for item in candidates if item <= current]
+    if not due:
+        previous_day = current.date() - timedelta(days=1)
+        slot = datetime(previous_day.year, previous_day.month, previous_day.day, 17, tzinfo=MSK_TZ)
+    else:
+        slot = max(due)
+    return slot.strftime("%Y-%m-%d %H:%M"), slot
+
+
+def build_period_summary(runs: list[dict], slot: str) -> str:
+    total_passed = sum(int(run.get("passed") or 0) for run in runs)
+    all_failures = [item for run in runs for item in (run.get("failed_records") or [])]
+    grouped: dict[tuple[str, str], list[dict]] = {}
+    for item in all_failures:
+        key = (item.get("site") or "unknown-site", item.get("step") or "Не выполнен шаг тест-кейса")
+        grouped.setdefault(key, []).append(item)
+
+    first_time = runs[0].get("timestamp") if runs else ""
+    lines = [
+        f"Сводный отчет автотестов форм заявок за период {first_time} - {now_msk_text()}",
+        "",
+        f"Прогонов: {len(runs)}",
+        f"Успешных проверок: {total_passed}",
+        f"Ошибок: {len(all_failures)}",
+    ]
+    if all_failures:
+        lines.extend(["", "Ошибки по сайтам и шагам:"])
+        for (site, step), items in sorted(grouped.items(), key=lambda pair: len(pair[1]), reverse=True):
+            sample = normalize_text(items[0].get("message") or "без деталей", max_len=180)
+            lines.append(f"- {site} / {step}: {len(items)}")
+            lines.append(f"  Пример: {sample}")
+    else:
+        lines.extend(["", "Ошибок за период не зафиксировано."])
+
+    lines.extend(["", f"Отчет сформирован для окна {slot} по Москве."])
+    if RUN_URL:
+        lines.append(f"Run: {RUN_URL}")
+    if ALLURE_URL:
+        lines.append(f"Allure: {ALLURE_URL}")
+    return trim_message("\n".join(lines).strip())
+
+
+def build_twice_daily_summary(passed: int, failed_records: list[dict]) -> tuple[str, bool]:
+    state = load_summary_state()
+    runs = list(state.get("runs") or [])
+    run_id = os.getenv("BUILD_TAG", "").strip() or RUN_URL or now_msk_text()
+    if not any(str(run.get("run_id") or "") == run_id for run in runs):
+        runs.append(
+            {
+                "run_id": run_id,
+                "timestamp": now_msk_text(),
+                "passed": passed,
+                "failed_records": failed_records,
+            }
+        )
+
+    slot, slot_time = current_summary_slot()
+    should_send = ALERT_SUMMARY_ENABLED and slot != state.get("last_sent_slot") and datetime.now(MSK_TZ) >= slot_time
+    if should_send:
+        message = build_period_summary(runs, slot)
+        save_summary_state(slot, [])
+        return message, True
+
+    save_summary_state(state.get("last_sent_slot") or "", runs)
+    return "", False
+
+
 def append_site_lines(lines: list[str], sites: list[tuple[str, list[dict]]]) -> None:
     for site, items in sites:
         count = len(items)
@@ -393,6 +499,16 @@ def build_summary(
 
 def main() -> int:
     passed, failed_records = collect_results(RESULTS_DIR)
+    if NOTIFY_MODE == "twice_daily":
+        message, should_send = build_twice_daily_summary(passed, failed_records)
+        OUT_FLAG_FILE.write_text("1" if should_send else "0", encoding="utf-8")
+        OUT_MESSAGE_FILE.write_text(message, encoding="utf-8")
+        if message:
+            print(message)
+        else:
+            print("Summary accumulated; next report window is 09:00 or 17:00 MSK.")
+        return 0
+
     current_failed_sites = {record["site"] for record in failed_records if record.get("site")}
     grouped_current = group_failed_by_site_step(failed_records)
     current_failed_signatures = {

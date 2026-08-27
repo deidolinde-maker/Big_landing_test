@@ -63,6 +63,7 @@ pipeline {
     ALERT_AGGREGATES_ENABLED = "${params.ALERT_AGGREGATES}"
     ALERT_SUMMARY_ENABLED = "${params.ALERT_SUMMARY}"
     ALERT_RECOVERED_ENABLED = "${params.ALERT_RECOVERED}"
+    NOTIFY_MODE = 'twice_daily'
   }
 
   stages {
