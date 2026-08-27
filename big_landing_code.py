@@ -154,6 +154,11 @@ def _is_mts_runtime_url(url: str) -> bool:
     )
 
 
+def _is_mts_internet_runtime_url(url: str) -> bool:
+    host = (urlsplit(_normalize_runtime_url(url)).netloc or "").lower()
+    return host == "mts-internet.online"
+
+
 def _use_soft_house_retry(page: Page, form_type: str) -> bool:
     if form_type not in {"profit", "connection", "checkaddress", "moving", "express-connection"}:
         return False
@@ -698,6 +703,7 @@ POPUP_OPEN_KEYWORDS = [
     "заказать", "оформить", "узнать подробнее",
 ]
 POPUP_SKIP_KEYWORDS = ["проверить адрес", "сменить город"]
+MTS_INTERNET_SKIP_BUTTON_TEXT = "как подключить домашний интернет мтс"
 
 SUGGESTION_SELECTORS = [
     "[role='option']", "[role='listbox'] li",
@@ -2615,6 +2621,12 @@ def collect_popup_buttons(
                 if not any(kw in text for kw in POPUP_OPEN_KEYWORDS):
                     continue
                 if any(kw in text for kw in POPUP_SKIP_KEYWORDS):
+                    continue
+                if (
+                    _is_mts_internet_runtime_url(page.url)
+                    and MTS_INTERNET_SKIP_BUTTON_TEXT in text
+                ):
+                    print(f"  [COLLECT] SKIP MTS internet FAQ button '{text}'")
                     continue
                 text_key = ("generic", text)
                 current_count = text_counters.get(text_key, 0)
