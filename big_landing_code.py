@@ -704,6 +704,10 @@ POPUP_OPEN_KEYWORDS = [
 ]
 POPUP_SKIP_KEYWORDS = ["проверить адрес", "сменить город"]
 MTS_INTERNET_SKIP_BUTTON_TEXT = "как подключить домашний интернет мтс"
+MTS_INTERNET_SKIP_BUTTON_KEYWORDS = (
+    "можно ли подключить тв",
+    "тв и мобильную связь вместе с интернетом",
+)
 
 SUGGESTION_SELECTORS = [
     "[role='option']", "[role='listbox'] li",
@@ -2504,10 +2508,10 @@ def wait_for_popup_with_fields(page: Page, timeout_ms: int = 10_000,
                 for i in range(containers.count()):
                     container = containers.nth(i)
                     try:
-                        if not container.is_visible():
+                        if not container.is_visible(timeout=300):
                             continue
                         phone = container.locator(cfg["phone"]).first
-                        if phone.count() > 0 and phone.is_visible():
+                        if phone.count() > 0 and phone.is_visible(timeout=300):
                             print(f"  [POPUP] sel='{popup_sel}' type='{form_type}'")
                             return form_type, container
                     except Exception:
@@ -2518,17 +2522,17 @@ def wait_for_popup_with_fields(page: Page, timeout_ms: int = 10_000,
             for i in range(phone_fields.count()):
                 phone = phone_fields.nth(i)
                 try:
-                    if not phone.is_visible():
+                    if not phone.is_visible(timeout=300):
                         continue
                     parent = phone.locator(
                         "xpath=ancestor::div[contains(@class,'popup') or "
                         "contains(@class,'modal') or contains(@id,'popup')]"
                     ).last
-                    if parent.count() > 0 and parent.is_visible():
+                    if parent.count() > 0 and parent.is_visible(timeout=300):
                         print(f"  [POPUP] ancestor type='{form_type}'")
                         return form_type, parent
                     form_parent = phone.locator("xpath=ancestor::form").last
-                    if form_parent.count() > 0 and form_parent.is_visible():
+                    if form_parent.count() > 0 and form_parent.is_visible(timeout=300):
                         print(f"  [POPUP] form-ancestor type='{form_type}'")
                         return form_type, form_parent
                 except Exception:
@@ -2624,7 +2628,10 @@ def collect_popup_buttons(
                     continue
                 if (
                     _is_mts_internet_runtime_url(page.url)
-                    and MTS_INTERNET_SKIP_BUTTON_TEXT in text
+                    and (
+                        MTS_INTERNET_SKIP_BUTTON_TEXT in text
+                        or any(keyword in text for keyword in MTS_INTERNET_SKIP_BUTTON_KEYWORDS)
+                    )
                 ):
                     print(f"  [COLLECT] SKIP MTS internet FAQ button '{text}'")
                     continue
@@ -2897,10 +2904,17 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
     tested_form_types: set[str] = set()
     successful_form_types: set[str] = set()
     tested_trigger_kinds: set[str] = set()
+    stop_after_mts_internet_form_failure = False
     site_label = base_url.replace("https://", "").replace("http://", "").strip("/")
     no_confirmation_by_text = {}
 
     for num, entry in enumerate(buttons, 1):
+        if stop_after_mts_internet_form_failure:
+            print(
+                f"  [{label}] Остановка цикла: mts-internet уже получил "
+                "ошибку заполнения формы"
+            )
+            break
         if (
             stop_after_first_expected_form
             and expected_form_types
@@ -2930,7 +2944,7 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
         print(f"\n{sep}\n[{label} {num}/{len(buttons)}] '{text}' hint={form_hint}\n{sep}")
 
         def register_failure(code: str, details: str = ""):
-            nonlocal failed, first_fail
+            nonlocal failed, first_fail, stop_after_mts_internet_form_failure
             failed += 1
             current_url = ""
             try:
@@ -2947,6 +2961,12 @@ def _run_popup_cycle(page: Page, buttons: list, base_url: str,
             if first_fail is None:
                 first_fail = entry_line[:220]
             print(f"  [FAIL-DETAIL] {entry_line}")
+            if (
+                _is_mts_internet_runtime_url(base_url)
+                and not form_hint
+                and code == "form_not_filled"
+            ):
+                stop_after_mts_internet_form_failure = True
 
         def recover_from_unexpected_profit(current_context: str) -> str:
             # Когда целевая форма сама profit — это не "неожиданное" появление.
