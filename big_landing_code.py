@@ -799,6 +799,8 @@ SERVICE_MODE_ALL = "all"
 SERVICE_MODE_CORE = "core"
 SERVICE_MODE_VARIANTS = "variants"
 SERVICE_MODE_CHOICES = {SERVICE_MODE_ALL, SERVICE_MODE_CORE, SERVICE_MODE_VARIANTS}
+# Temporary switch: keep business submission code available, but do not execute it.
+ENABLE_BUSINESS_SUBMIT_STEPS = False
 
 
 def get_execution_profile_name() -> str:
@@ -4153,7 +4155,14 @@ def run_site_scenario(page: Page, cfg: dict):
 
     # ── 3. Попапы /business ───────────────────────────────────────────────
     with allure.step("Шаг 3: попапы /business"):
-        if service_mode == SERVICE_MODE_VARIANTS:
+        if not ENABLE_BUSINESS_SUBMIT_STEPS:
+            mark_step_not_applicable(
+                site_label,
+                "3",
+                "попапы /business",
+                "временно отключен",
+            )
+        elif service_mode == SERVICE_MODE_VARIANTS:
             mark_step_not_applicable(site_label, "3", "попапы /business", "service_mode=variants")
         elif ("business" in expected_forms) if is_url_mode else cfg.get("has_business"):
             business_url = base_url
@@ -4313,7 +4322,14 @@ def run_site_scenario(page: Page, cfg: dict):
 
     # ── 4b. Попапы /business города ───────────────────────────────────────
     with allure.step("Шаг 4b: попапы /business города"):
-        if is_url_mode:
+        if not ENABLE_BUSINESS_SUBMIT_STEPS:
+            mark_step_not_applicable(
+                site_label,
+                "4b",
+                "попапы /business города",
+                "временно отключен",
+            )
+        elif is_url_mode:
             mark_step_not_applicable(
                 site_label,
                 "4b",
