@@ -145,8 +145,8 @@ https://rtk-home-internet.ru/thanks
 https://rtk-internet.online
 https://rtk-internet.online/moskva
 https://rtk-internet.online/thanks
-http://rtk-home.ru
-http://rtk-home.ru/moskva
+https://rtk-home.ru
+https://rtk-home.ru/moskva
 https://beeline-ru.online/
 https://beeline-ru.online/yuzhno-sahalinsk
 https://beeline-ru.online/thanks

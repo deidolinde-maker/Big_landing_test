@@ -45,8 +45,8 @@ https://rtk-home-internet.ru/moskva
 https://rtk-internet.online
 https://rtk-internet.online/moskva
 https://rtk-internet.online/business
-http://rtk-home.ru
-http://rtk-home.ru/moskva
+https://rtk-home.ru
+https://rtk-home.ru/moskva
 https://rtk-home.ru/podklyuchenie-interneta
 https://rtk-home.ru/moskva/podklyuchenie-interneta
 https://rtk-home.ru/business

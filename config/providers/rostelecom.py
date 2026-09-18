@@ -31,11 +31,10 @@ SITES = [
         "cities": ["Москва"],
     },
     {
-        "base_url": "http://rtk-home.ru/",
+        "base_url": "https://rtk-home.ru/",
         "has_checkaddress": True,
         "has_business": True,
         "has_name_field": True,
         "cities": ["Москва"],
     },
 ]
-
