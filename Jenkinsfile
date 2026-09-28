@@ -65,6 +65,7 @@ pipeline {
     ALERT_RECOVERED_ENABLED = "${params.ALERT_RECOVERED}"
     NOTIFY_MODE = 'twice_daily'
     SUMMARY_STATE_FILE = '/var/lib/jenkins/shared/big_landing_test/summary_state.json'
+    ALERT_STATE_FILE = '/var/lib/jenkins/shared/big_landing_test/alert_state.json'
   }
 
   stages {
@@ -548,7 +549,7 @@ PY
       '''
       script {
         def isSuccess = (currentBuild.currentResult ?: 'SUCCESS') == 'SUCCESS'
-        def artifactsPattern = 'allure-results/**, allure-results-*/**, telegram_message.txt, telegram_should_send.txt, notify_state.json'
+        def artifactsPattern = 'allure-results/**, allure-results-*/**, telegram_message.txt, telegram_should_send.txt, telegram_alert_message.txt, telegram_alert_should_send.txt, notify_state.json'
         if (!isSuccess) {
           artifactsPattern += ', artifacts/videos/**'
           echo 'Build is not SUCCESS: include videos in archived artifacts.'
@@ -581,11 +582,26 @@ PY
             export ALLURE_RESULTS_DIR="allure-results"
             export RUN_URL="${BUILD_URL}"
             export ALLURE_URL="${BUILD_URL}allure/"
+            export TELEGRAM_ALERT_EVENTS_FILE="telegram_alert_events.jsonl"
 
             "${pybin}" notify_from_allure.py || {
               echo "notify_from_allure.py failed, skip summary alert."
               exit 0
             }
+
+            if [ -f telegram_alert_should_send.txt ] && [ "$(cat telegram_alert_should_send.txt | tr -d '[:space:]')" = "1" ] && [ -s telegram_alert_message.txt ]; then
+              "${pybin}" - <<'PY'
+from pathlib import Path
+from big_landing_code import send_telegram_alert
+
+text = Path("telegram_alert_message.txt").read_text(encoding="utf-8").strip()
+alert_type = "critical" if "Критические ошибки" in text else "step"
+if text:
+    send_telegram_alert(text, alert_type=alert_type)
+PY
+            else
+              echo "No deduplicated runtime alert to send."
+            fi
 
             if [ ! -f telegram_should_send.txt ]; then
               echo "telegram_should_send.txt missing, skip summary alert."

@@ -28,6 +28,7 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from site_configs import select_site_configs
 from config.url_loader import available_url_brands, build_site_configs_from_urls
+from alert_events import queue_alert_event
 
 try:
     # Avoid UnicodeEncodeError on Windows consoles with cp1251.
@@ -399,10 +400,15 @@ def send_step_alert(site_label: str, step_no: str, step_name: str, reason: str, 
     url = page.url if page else ""
     error_text = f'Не выполнен шаг "{step_name}"'
     details = _normalize_alert_text(reason)
-    message = _build_form_alert_message(site_label, url, error_text, details)
-
     print(f"[STEP-ALERT] [{site_label}] Шаг {step_no}: {step_name} | {reason} | {url}")
-    send_telegram_alert(message, alert_type="step")
+    queue_alert_event(
+        alert_type="step",
+        site_label=site_label,
+        page_url=url,
+        step_name=step_name,
+        error_text=error_text,
+        details=details,
+    )
 
 
 class SiteUnavailableError(RuntimeError):
@@ -427,7 +433,14 @@ def send_critical_alert(site_label: str, step_no: str, step_name: str, reason: s
         name=f"CRITICAL: Шаг {step_no} {step_name}",
         attachment_type=allure.attachment_type.TEXT,
     )
-    send_telegram_alert(text, alert_type="critical")
+    queue_alert_event(
+        alert_type="critical",
+        site_label=site_label,
+        page_url=url,
+        step_name=step_name,
+        error_text=error_text,
+        details=details,
+    )
 
 
 def skip_site_due_unavailability(

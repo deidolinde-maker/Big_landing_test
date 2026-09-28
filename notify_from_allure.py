@@ -9,6 +9,8 @@ import os
 import re
 import sys
 
+from alert_events import event_file
+
 
 RESULTS_DIR = Path(os.getenv("ALLURE_RESULTS_DIR", "allure-results"))
 RUN_URL = os.getenv("RUN_URL", "").strip()
@@ -17,10 +19,13 @@ SITE_HINT = os.getenv("SITE_HINT", "").strip()
 
 OUT_MESSAGE_FILE = Path("telegram_message.txt")
 OUT_FLAG_FILE = Path("telegram_should_send.txt")
+OUT_ALERT_MESSAGE_FILE = Path("telegram_alert_message.txt")
+OUT_ALERT_FLAG_FILE = Path("telegram_alert_should_send.txt")
 
 STATE_FILE = Path(os.getenv("NOTIFY_STATE_FILE", "notify_state.json"))
 STATE_URL = os.getenv("NOTIFY_STATE_URL", "").strip()
 SUMMARY_STATE_FILE = Path(os.getenv("SUMMARY_STATE_FILE", "summary_state.json"))
+ALERT_STATE_FILE = Path(os.getenv("ALERT_STATE_FILE", "alert_state.json"))
 
 NORMAL_ALERT_MAX_PER_SITE = 5
 MASS_ALERT_SITE_THRESHOLD = 5
@@ -75,6 +80,119 @@ def normalize_text(value: str, max_len: int = 220) -> str:
     if len(text) > max_len:
         return text[: max_len - 3] + "..."
     return text
+
+
+def load_alert_events() -> list[dict]:
+    path = event_file()
+    if not path.exists():
+        return []
+    events: list[dict] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                item = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(item, dict) and item.get("group_key"):
+                events.append(item)
+    except Exception:
+        return []
+    return events
+
+
+def clear_alert_events() -> None:
+    try:
+        event_file().write_text("", encoding="utf-8")
+    except Exception:
+        pass
+
+
+def runtime_scope_key() -> str:
+    job = (os.getenv("JOB_NAME") or "local").strip()
+    scope = (os.getenv("PROVIDER_SCOPE") or "all").strip()
+    return f"{job}|{scope}"
+
+
+def load_alert_state() -> dict:
+    try:
+        data = json.loads(ALERT_STATE_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and isinstance(data.get("scopes"), dict):
+            return data
+    except Exception:
+        pass
+    return {"scopes": {}}
+
+
+def save_alert_state(state: dict) -> None:
+    try:
+        ALERT_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        ALERT_STATE_FILE.write_text(
+            json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception:
+        pass
+
+
+def build_runtime_alert(events: list[dict]) -> tuple[str, bool, str]:
+    state = load_alert_state()
+    scope = runtime_scope_key()
+    previous = state.setdefault("scopes", {}).get(scope) or {}
+    grouped: dict[str, list[dict]] = {}
+    for event in events:
+        grouped.setdefault(str(event["group_key"]), []).append(event)
+
+    current: dict[str, dict] = {}
+    blocks: list[str] = []
+    has_critical = False
+    for group_key, items in grouped.items():
+        first = items[0]
+        has_critical = has_critical or first.get("alert_type") == "critical"
+        pages = sorted({str(item.get("page_url") or item.get("site") or "") for item in items})
+        repeated = group_key in previous
+        headline = "Ошибка все еще актуальна" if repeated else "Ошибка на всех страницах лендинга"
+        if len(pages) <= 1:
+            headline = "Ошибка все еще актуальна" if repeated else "Ошибка автотеста"
+        lines = [
+            f"❌ {headline}",
+            f"🌐 Домен: {first.get('domain') or first.get('site') or 'unknown-site'}",
+            f"🔎 Шаг: {first.get('step') or 'не указан'}",
+            f"Детали: {first.get('details') or 'без деталей'}",
+            f"Страницы ({len(pages)}):",
+        ]
+        lines.extend(f"• {page}" for page in pages[:25])
+        if len(pages) > 25:
+            lines.append(f"• ... и еще {len(pages) - 25}")
+        blocks.append("\n".join(lines))
+        current[group_key] = {
+            "domain": first.get("domain") or first.get("site"),
+            "step": first.get("step"),
+            "details": first.get("details"),
+            "pages": pages,
+            "last_seen_utc": datetime.now(timezone.utc).isoformat(),
+        }
+
+    for group_key in sorted(set(previous) - set(current)):
+        item = previous[group_key]
+        blocks.append(
+            "\n".join(
+                [
+                    "✅ Ошибка устранена",
+                    f"🌐 Домен: {item.get('domain') or 'unknown-site'}",
+                    f"🔎 Шаг: {item.get('step') or 'не указан'}",
+                ]
+            )
+        )
+
+    state["scopes"][scope] = current
+    save_alert_state(state)
+    clear_alert_events()
+    if not blocks:
+        return "", False, "step"
+    header = "🚨 Критические ошибки автотеста" if has_critical else "🚨 Ошибки автотеста"
+    message = trim_message("\n\n".join([header, f"🕒 Время: {now_msk_text()}", *blocks]))
+    return message, True, "critical" if has_critical else "step"
 
 
 def now_msk_text() -> str:
@@ -501,6 +619,11 @@ def build_summary(
 
 def main() -> int:
     passed, failed_records = collect_results(RESULTS_DIR)
+    runtime_message, runtime_should_send, _runtime_alert_type = build_runtime_alert(load_alert_events())
+    OUT_ALERT_FLAG_FILE.write_text("1" if runtime_should_send else "0", encoding="utf-8")
+    OUT_ALERT_MESSAGE_FILE.write_text(runtime_message, encoding="utf-8")
+    if runtime_message:
+        print(runtime_message)
     if NOTIFY_MODE == "twice_daily":
         message, should_send = build_twice_daily_summary(passed, failed_records)
         OUT_FLAG_FILE.write_text("1" if should_send else "0", encoding="utf-8")
