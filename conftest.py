@@ -188,6 +188,30 @@ def browser_context_args(browser_context_args, playwright, execution_profile):
 
     return merged_args
 
+
+@pytest.fixture(scope="session")
+def browser_type_launch_args(browser_type_launch_args):
+    """Use an optional authenticated proxy for all Playwright browser launches."""
+    raw_proxy = (os.getenv("BROWSER_PROXY") or "").strip()
+    if not raw_proxy:
+        return browser_type_launch_args
+
+    parts = raw_proxy.rsplit(":", 2)
+    if len(parts) == 3 and all(parts):
+        server, username, password = parts
+        proxy = {
+            "server": f"http://{server}",
+            "username": username,
+            "password": password,
+        }
+    else:
+        proxy = {"server": raw_proxy if "://" in raw_proxy else f"http://{raw_proxy}"}
+
+    merged_args = dict(browser_type_launch_args)
+    merged_args["proxy"] = proxy
+    print(f"[PLAYWRIGHT] Browser proxy enabled: {proxy['server']}")
+    return merged_args
+
 @pytest.fixture(autouse=True)
 def apply_blocking_profile(page, blocking_profile):
     if blocking_profile != "adblock-mvp":
