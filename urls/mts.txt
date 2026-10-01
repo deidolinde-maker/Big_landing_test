@@ -18,7 +18,7 @@ https://mts-home.online/connect
 https://mts-home.online/reviews
 https://mts-home.online/oborudovanie
 https://mts-home.online/help
-https://mts-home.online/help/kak-pomenyat-tarif-na-mts
+# https://mts-home.online/help/kak-pomenyat-tarif-na-mts
 https://mts-home.online/bonusy
 https://mts-home.online/bonusy/vozvrashchaite-10-pri-popolnenii-scheta-mts
 https://mts-home.online/uslugi
