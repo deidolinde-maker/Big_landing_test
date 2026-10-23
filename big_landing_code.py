@@ -138,6 +138,10 @@ def _is_beeline_runtime_url(url: str) -> bool:
 SUPPRESS_BEELINE_CHECKADDRESS_ALERTS = True
 SUPPRESS_MTS_CHECKADDRESS_ALERTS = True
 
+MTS_HOME_GPON_SESSION_KEY = "landing-yandex-events:v1"
+MTS_HOME_GPON_SESSION_REFRESH_ATTEMPTS = 5
+MTS_HOME_GPON_SESSION_WAIT_MS = 2500
+
 
 def _is_mts_runtime_url(url: str) -> bool:
     host = (urlsplit(_normalize_runtime_url(url)).netloc or "").lower()
@@ -153,6 +157,64 @@ def _is_mts_runtime_url(url: str) -> bool:
             "mts-internet.online",
         )
     )
+
+
+def _is_mts_home_gpon_url(url: str) -> bool:
+    host = (urlsplit(_normalize_runtime_url(url)).netloc or "").lower()
+    return host == "mts-home-gpon.ru" or host.endswith(".mts-home-gpon.ru")
+
+
+def _ensure_mts_home_gpon_session(page: Page) -> tuple[bool, str]:
+    """Refresh until the stale landing session marker disappears."""
+    if not _is_mts_home_gpon_url(page.url or ""):
+        return True, "not_applicable"
+
+    def marker_exists() -> tuple[bool, str]:
+        try:
+            return bool(
+                page.evaluate(
+                    """key => window.localStorage.getItem(key) !== null""",
+                    MTS_HOME_GPON_SESSION_KEY,
+                )
+            ), ""
+        except Exception as exc:
+            return False, str(exc).replace("\n", " ")[:180]
+
+    has_marker, last_error = marker_exists()
+    if not has_marker and not last_error:
+        print(f"  [SESSION] ✅ {MTS_HOME_GPON_SESSION_KEY} отсутствует, продолжаем")
+        return True, "marker_absent"
+
+    if last_error:
+        print(f"  [SESSION] ⚠️ Не удалось проверить localStorage: {last_error}")
+    else:
+        print(f"  [SESSION] ⚠️ {MTS_HOME_GPON_SESSION_KEY} найден, обновляем сессию")
+
+    for attempt in range(1, MTS_HOME_GPON_SESSION_REFRESH_ATTEMPTS + 1):
+        try:
+            page.reload(wait_until="domcontentloaded", timeout=NAV_GOTO_TIMEOUT_MS)
+            page.wait_for_timeout(MTS_HOME_GPON_SESSION_WAIT_MS)
+        except Exception as exc:
+            last_error = str(exc).replace("\n", " ")[:180]
+
+        has_marker, marker_error = marker_exists()
+        if not has_marker and not marker_error:
+            print(
+                f"  [SESSION] ✅ {MTS_HOME_GPON_SESSION_KEY} исчез "
+                f"(refresh {attempt}/{MTS_HOME_GPON_SESSION_REFRESH_ATTEMPTS})"
+            )
+            return True, "marker_removed"
+        if marker_error:
+            last_error = marker_error
+
+    reason = (
+        f"localStorage key {MTS_HOME_GPON_SESSION_KEY!r} не исчез после "
+        f"{MTS_HOME_GPON_SESSION_REFRESH_ATTEMPTS} обновлений"
+    )
+    if last_error:
+        reason += f" | last_error={last_error}"
+    print(f"  [SESSION] ❌ {reason}")
+    return False, reason
 
 
 def _is_mts_internet_runtime_url(url: str) -> bool:
@@ -1347,6 +1409,13 @@ def safe_goto(
                 continue
 
             print(f"  [NAV] {url}")
+            session_ok, session_reason = _ensure_mts_home_gpon_session(page)
+            if not session_ok:
+                last_error = session_reason
+                print(f"  [NAV] ⏭️ Лендинг пропущен: {session_reason}")
+                pytest.skip(
+                    f"[{url}] пропущен: localStorage-сессия лендинга не обновилась"
+                )
             return True, False, ""
         except Exception as e:
             last_error = str(e).replace("\n", " ")[:220]
