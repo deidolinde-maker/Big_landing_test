@@ -138,11 +138,6 @@ def _is_beeline_runtime_url(url: str) -> bool:
 SUPPRESS_BEELINE_CHECKADDRESS_ALERTS = True
 SUPPRESS_MTS_CHECKADDRESS_ALERTS = True
 
-MTS_HOME_GPON_SESSION_KEY = "landing-yandex-events:v1"
-MTS_HOME_GPON_SESSION_REFRESH_ATTEMPTS = 5
-MTS_HOME_GPON_SESSION_WAIT_MS = 2500
-
-
 def _is_mts_runtime_url(url: str) -> bool:
     host = (urlsplit(_normalize_runtime_url(url)).netloc or "").lower()
     if not host:
@@ -159,62 +154,54 @@ def _is_mts_runtime_url(url: str) -> bool:
     )
 
 
-def _is_mts_home_gpon_url(url: str) -> bool:
-    host = (urlsplit(_normalize_runtime_url(url)).netloc or "").lower()
-    return host == "mts-home-gpon.ru" or host.endswith(".mts-home-gpon.ru")
+def refresh_mts_home_gpon_version(page: Page, url: str) -> None:
+    """Refresh the MTS GPON locator mode after every navigation."""
+    parsed = urlsplit(url)
+    host = (parsed.hostname or "").lower().rstrip(".")
+    path = (parsed.path or "").rstrip("/")
+    if host != MTS_HOME_GPON_HOST or path:
+        return
 
-
-def _ensure_mts_home_gpon_session(page: Page) -> tuple[bool, str]:
-    """Refresh until the stale landing session marker disappears."""
-    if not _is_mts_home_gpon_url(page.url or ""):
-        return True, "not_applicable"
-
-    def marker_exists() -> tuple[bool, str]:
-        try:
-            return bool(
-                page.evaluate(
-                    """key => window.localStorage.getItem(key) !== null""",
-                    MTS_HOME_GPON_SESSION_KEY,
-                )
-            ), ""
-        except Exception as exc:
-            return False, str(exc).replace("\n", " ")[:180]
-
-    has_marker, last_error = marker_exists()
-    if not has_marker and not last_error:
-        print(f"  [SESSION] ✅ {MTS_HOME_GPON_SESSION_KEY} отсутствует, продолжаем")
-        return True, "marker_absent"
-
-    if last_error:
-        print(f"  [SESSION] ⚠️ Не удалось проверить localStorage: {last_error}")
-    else:
-        print(f"  [SESSION] ⚠️ {MTS_HOME_GPON_SESSION_KEY} найден, обновляем сессию")
-
-    for attempt in range(1, MTS_HOME_GPON_SESSION_REFRESH_ATTEMPTS + 1):
-        try:
-            page.reload(wait_until="domcontentloaded", timeout=NAV_GOTO_TIMEOUT_MS)
-            page.wait_for_timeout(MTS_HOME_GPON_SESSION_WAIT_MS)
-        except Exception as exc:
-            last_error = str(exc).replace("\n", " ")[:180]
-
-        has_marker, marker_error = marker_exists()
-        if not has_marker and not marker_error:
-            print(
-                f"  [SESSION] ✅ {MTS_HOME_GPON_SESSION_KEY} исчез "
-                f"(refresh {attempt}/{MTS_HOME_GPON_SESSION_REFRESH_ATTEMPTS})"
+    try:
+        page._use_mts_next_locators = bool(
+            page.evaluate(
+                "key => window.localStorage.getItem(key) !== null",
+                MTS_YANDEX_EVENTS_STORAGE_KEY,
             )
-            return True, "marker_removed"
-        if marker_error:
-            last_error = marker_error
+        )
+        mode = "new data-testid" if page._use_mts_next_locators else "old CSS"
+        print(f"  [VERSION] MTS GPON mode: {mode}")
+    except Exception as exc:
+        page._use_mts_next_locators = False
+        reason = f"не удалось определить версию MTS GPON по localStorage: {exc}"
+        print(f"  [VERSION] ⚠️ {reason}; сохраняем legacy CSS-локаторы")
+        # Ошибка определения версии не должна превращаться в skip: продолжаем
+        # прогон на legacy-локаторах, но оставляем технический след в отчёте.
+        site_label = (urlsplit(url).netloc or MTS_HOME_GPON_HOST).lower()
+        send_step_alert(site_label, "version", "определение версии MTS GPON", reason, page)
 
-    reason = (
-        f"localStorage key {MTS_HOME_GPON_SESSION_KEY!r} не исчез после "
-        f"{MTS_HOME_GPON_SESSION_REFRESH_ATTEMPTS} обновлений"
-    )
-    if last_error:
-        reason += f" | last_error={last_error}"
-    print(f"  [SESSION] ❌ {reason}")
-    return False, reason
+
+def confirm_mts_city_if_present(page: Page) -> bool:
+    """Подтвердить регион только через явные контролы нового MTS-попапа."""
+    current_host = (urlsplit(page.url or "").hostname or "").lower().rstrip(".")
+    if current_host != MTS_HOME_GPON_HOST:
+        return True
+
+    for selector in (
+        "[data-testid='mts-city-selector-accept']",
+        "#yesButton",
+    ):
+        try:
+            control = page.locator(selector).first
+            if control.count() == 0 or not control.is_visible():
+                continue
+            control.click(force=True)
+            page.wait_for_timeout(250)
+            print(f"  [REGION] MTS: регион подтверждён ({selector})")
+            return True
+        except Exception:
+            pass
+    return True
 
 
 def _is_mts_internet_runtime_url(url: str) -> bool:
@@ -719,6 +706,41 @@ FORM_CONFIGS = {
     },
 }
 
+MTS_NEXT_CHECKADDRESS_CONFIG = {
+    "street": "[data-testid='mts-address-street-input']",
+    "house": "[data-testid='mts-address-house-input']",
+    "phone": "[data-testid='mts-address-phone-input']",
+    "submit": "[data-testid='mts-address-submit']",
+    "no_house": False,
+    "no_suggest": False,
+}
+MTS_NEXT_FORM_TYPE = "mts_address_search"
+MTS_NEXT_ADDRESS_FORM_TYPES = {
+    "checkaddress",
+    "connection",
+    "profit",
+    "express-connection",
+}
+
+
+def form_config_for_page(page: Page | None, form_type: str) -> dict:
+    if form_type == MTS_NEXT_FORM_TYPE:
+        return dict(MTS_NEXT_CHECKADDRESS_CONFIG)
+
+    resolved_configs = getattr(page, "_resolved_form_configs", {}) if page is not None else {}
+    resolved_cfg = resolved_configs.get(form_type)
+    if resolved_cfg is not None:
+        return dict(resolved_cfg)
+
+    cfg = dict(FORM_CONFIGS[form_type])
+    if (
+        form_type in MTS_NEXT_ADDRESS_FORM_TYPES
+        and page is not None
+        and getattr(page, "_use_mts_next_locators", False)
+    ):
+        cfg.update(MTS_NEXT_CHECKADDRESS_CONFIG)
+    return cfg
+
 # CSS-классы кнопок, открывающих попапы (по типу формы)
 POPUP_BUTTON_CLASSES = {
     "connection":         "#btnup.connection_address_button, .connection_address_button, #btnup",
@@ -741,6 +763,8 @@ SUCCESS_URL_MARKERS = ["/tilda/form1/submitted", "/thanks", "/thank_you_page"]
 SITE_UNAVAILABLE_THRESHOLD_MS = 60_000
 NAV_GOTO_TIMEOUT_MS = 20_000
 NAV_RETRIES = 3
+MTS_HOME_GPON_HOST = "mts-home-gpon.ru"
+MTS_YANDEX_EVENTS_STORAGE_KEY = "landing-yandex-events:v1"
 SUBMIT_CONFIRM_TIMEOUT_MS = 25_000
 SUBMIT_CONFIRM_GRACE_MS = 2_000
 CITY_LOADSTATE_TIMEOUT_MS = 7_000
@@ -765,6 +789,8 @@ FIREFOX_POPUP_WAIT_TIMEOUT_MS = 13_000
 FIREFOX_SUBMIT_TIMEOUT_BONUS_MS = 7_000
 
 POPUP_CONTAINER_SELECTORS = [
+    "[class*='MtsAddressSearch-module-scss-module__'][class*='__card']",
+    "[class*='MtsAddressSearch'][class*='card']",
     "div#popup", "div.popup",
     "[id*='popup']:not(script)",
     "[class*='popup']:not(script)",
@@ -785,6 +811,8 @@ MTS_INTERNET_SKIP_BUTTON_KEYWORDS = (
 )
 
 SUGGESTION_SELECTORS = [
+    "[data-testid='mts-address-street-suggestion']",
+    "[data-testid='mts-address-house-suggestion']",
     "[role='option']", "[role='listbox'] li",
     ".suggestions__item", ".suggestion-item",
     ".autocomplete__item", ".autocomplete-item", ".ui-menu-item",
@@ -801,6 +829,9 @@ SERVICE_PLACE_VALUES = [
 ]
 
 REGION_POPUP_DETECT_SELECTORS = [
+    "[data-testid='mts-city-selector-accept']",
+    "[data-testid='mts-city-selector-decline']",
+    "[data-testid='mts-select-region-search']",
     "#yesButton",
     "#noButton",
     ".popup-select-region__button.city",
@@ -838,6 +869,7 @@ DOMRU_MOBILE_CITY_TRIGGER_SELECTORS = [
 ]
 
 THANKS_RETURN_SELECTORS = [
+    "[data-testid='mts-thanks-back-button']",
     "a:has-text('На главную')",
     "button:has-text('На главную')",
     "a:has-text('Вернуться')",
@@ -1032,6 +1064,23 @@ def dismiss_region_popup(page: Page):
       2. Кнопка закрытия .popup__close внутри .popup-select-region__content-wrapper
     Безопасно вызывать на любом сайте — если попапа нет, просто ничего не делает.
     """
+    current_host = (urlsplit(page.url or "").hostname or "").lower().rstrip(".")
+    if current_host == MTS_HOME_GPON_HOST:
+        for sel, label in (
+            ("[data-testid='mts-city-selector-accept']", "MTS кнопка 'Да'"),
+            ("#yesButton", "MTS #yesButton"),
+        ):
+            try:
+                btn = page.locator(sel).first
+                if btn.count() > 0 and btn.is_visible():
+                    btn.click(force=True)
+                    page.wait_for_timeout(400)
+                    print(f"  [REGION] Попап MTS региона подтверждён ({label})")
+                    return
+            except Exception:
+                pass
+        return
+
     # Ждём чуть — попап появляется с небольшой задержкой после загрузки
     page.wait_for_timeout(600)
 
@@ -1409,13 +1458,7 @@ def safe_goto(
                 continue
 
             print(f"  [NAV] {url}")
-            session_ok, session_reason = _ensure_mts_home_gpon_session(page)
-            if not session_ok:
-                last_error = session_reason
-                print(f"  [NAV] ⏭️ Лендинг пропущен: {session_reason}")
-                pytest.skip(
-                    f"[{url}] пропущен: localStorage-сессия лендинга не обновилась"
-                )
+            refresh_mts_home_gpon_version(page, url)
             return True, False, ""
         except Exception as e:
             last_error = str(e).replace("\n", " ")[:220]
@@ -1612,6 +1655,23 @@ def _is_form_city_change_button(locator) -> bool:
 
 
 def detect_visible_region_popup(page: Page) -> str | None:
+    current_host = (urlsplit(page.url or "").hostname or "").lower().rstrip(".")
+    if current_host == MTS_HOME_GPON_HOST:
+        for sel in (
+            "[data-testid='mts-city-selector-accept']",
+            "[data-testid='mts-city-selector-decline']",
+            "[data-testid='mts-select-region-search']",
+            "#yesButton",
+            "#noButton",
+        ):
+            try:
+                loc = page.locator(sel).first
+                if loc.count() > 0 and loc.is_visible():
+                    return sel
+            except Exception:
+                pass
+        return None
+
     for sel in REGION_POPUP_DETECT_SELECTORS:
         try:
             loc = page.locator(sel).first
@@ -1713,6 +1773,7 @@ def verify_thanks_close_and_return(
             else:
                 return False, f"возврат на другой путь ({current_path} вместо {expected_path})"
 
+        confirm_mts_city_if_present(page)
         region_sel = detect_visible_region_popup(page)
         if region_sel:
             return False, f"после возврата виден region-popup ({region_sel})"
@@ -1730,7 +1791,21 @@ def choose_first_suggestion(
     timeout_ms: int = SUGGEST_TIMEOUT_MS,
     field=None,
     allow_keyboard_fallback: bool = True,
+    expected_city: str | None = None,
 ) -> bool:
+    expected_city_normalized = " ".join(
+        str(expected_city or "").strip().lower().split()
+    )
+
+    def matches_expected_city(item) -> bool:
+        if not expected_city_normalized:
+            return True
+        try:
+            text = " ".join((item.inner_text() or "").strip().lower().split())
+            return bool(text) and expected_city_normalized in text
+        except Exception:
+            return False
+
     def click_suggestion_item(item) -> bool:
         # Some checkaddress widgets render suggestions inside custom wrappers;
         # try multiple click strategies before giving up.
@@ -1755,6 +1830,30 @@ def choose_first_suggestion(
             pass
         return False
 
+    if field is not None:
+        for attr in ("aria-controls", "aria-owns"):
+            try:
+                list_id = (field.get_attribute(attr) or "").strip()
+                if not list_id:
+                    continue
+                related = page.locator(
+                    f"[id='{list_id}'] [role='option'], "
+                    f"[id='{list_id}'] li, [id='{list_id}'] [data-testid*='suggestion']"
+                )
+                for index in range(related.count()):
+                    item = related.nth(index)
+                    if (
+                        item.is_visible()
+                        and (item.inner_text() or "").strip()
+                        and matches_expected_city(item)
+                    ):
+                        print(f"  [SUGGEST] related '{item.inner_text().strip()[:50]}'")
+                        if click_suggestion_item(item):
+                            page.wait_for_timeout(300)
+                            return True
+            except Exception:
+                pass
+
     poll_ms = 150
     elapsed = 0
     while elapsed < timeout_ms:
@@ -1763,7 +1862,11 @@ def choose_first_suggestion(
             for i in range(loc.count()):
                 item = loc.nth(i)
                 try:
-                    if item.is_visible() and (item.inner_text() or "").strip():
+                    if (
+                        item.is_visible()
+                        and (item.inner_text() or "").strip()
+                        and matches_expected_city(item)
+                    ):
                         print(f"  [SUGGEST] '{item.inner_text().strip()[:50]}'")
                         if click_suggestion_item(item):
                             page.wait_for_timeout(300)
@@ -1772,6 +1875,13 @@ def choose_first_suggestion(
                     pass
         page.wait_for_timeout(poll_ms)
         elapsed += poll_ms
+
+    if expected_city_normalized:
+        print(
+            "  [SUGGEST] No matching city suggestion within timeout "
+            f"(expected={expected_city!r})"
+        )
+        return False
 
     if not allow_keyboard_fallback:
         print("  [SUGGEST] No visible suggestions within timeout")
@@ -2095,7 +2205,7 @@ def _stabilize_form_before_retry(page: Page, container, form_type: str) -> str:
 def fill_form(page: Page, container, form_type: str,
               has_name_field: bool = False,
               service_place_value: str | None = None) -> bool:
-    cfg        = FORM_CONFIGS[form_type]
+    cfg        = form_config_for_page(page, form_type)
     no_house   = cfg.get("no_house", False)
     no_suggest = cfg.get("no_suggest", False)
     street_local = container.locator(cfg["street"]).first
@@ -2130,7 +2240,16 @@ def fill_form(page: Page, container, form_type: str,
 
         print(f"  [FORM] Street '{street_value}' entered, waiting suggestion...")
         suggest_timeout = browser_timeout(page, SUGGEST_TIMEOUT_MS, FIREFOX_SUGGEST_TIMEOUT_MS)
-        choose_first_suggestion(page, timeout_ms=suggest_timeout, field=street_local)
+        choose_first_suggestion(
+            page,
+            timeout_ms=suggest_timeout,
+            field=street_local,
+            expected_city=(
+                getattr(page, "_expected_city_name", None)
+                if form_type == MTS_NEXT_FORM_TYPE
+                else None
+            ),
+        )
         if _is_beeline_runtime_url(page.url or "") and form_type == "checkaddress":
             house_sel = cfg.get("house")
             if house_sel:
@@ -2427,7 +2546,12 @@ def fill_form(page: Page, container, form_type: str,
 
 
 def find_submit(container, form_type: str):
-    cfg    = FORM_CONFIGS[form_type]
+    page_ctx = None
+    try:
+        page_ctx = container.page
+    except Exception:
+        pass
+    cfg    = form_config_for_page(page_ctx, form_type)
     submit_selectors = [cfg["submit"]]
 
     # On selected /business URLs the connection trigger can open a business-like
@@ -2575,17 +2699,56 @@ def submit_with_confirmation(
 # Ожидание попапа
 # ---------------------------------------------------------------------------
 
+def popup_form_types_for_page(page: Page, form_hint=None):
+    old_types = list(FORM_CONFIGS)
+    if form_hint == "business":
+        return [("business", dict(FORM_CONFIGS["business"]))]
+    if form_hint == MTS_NEXT_FORM_TYPE:
+        candidates = [MTS_NEXT_FORM_TYPE, *old_types]
+    elif form_hint in FORM_CONFIGS:
+        candidates = [form_hint, MTS_NEXT_FORM_TYPE]
+    elif getattr(page, "_use_mts_next_locators", False):
+        candidates = [MTS_NEXT_FORM_TYPE, *old_types]
+    else:
+        candidates = [*old_types, MTS_NEXT_FORM_TYPE]
+    return [
+        (
+            name,
+            dict(MTS_NEXT_CHECKADDRESS_CONFIG)
+            if name == MTS_NEXT_FORM_TYPE
+            else dict(FORM_CONFIGS[name]),
+        )
+        for name in candidates
+    ]
+
+
 def wait_for_popup_with_fields(page: Page, timeout_ms: int = 10_000,
                                 form_hint=None):
-    form_types_to_check = (
-        [(form_hint, FORM_CONFIGS[form_hint])]
-        if form_hint and form_hint in FORM_CONFIGS
-        else list(FORM_CONFIGS.items())
-    )
+    form_types_to_check = popup_form_types_for_page(page, form_hint)
     poll_ms = 300
     elapsed = 0
 
     while elapsed < timeout_ms:
+        if getattr(page, "_use_mts_next_locators", False):
+            try:
+                dialogs = page.get_by_role("dialog", name="Проверка адреса")
+                for dialog_index in range(dialogs.count() - 1, -1, -1):
+                    dialog = dialogs.nth(dialog_index)
+                    if not dialog.is_visible():
+                        continue
+                    for form_type, cfg in form_types_to_check:
+                        phone = dialog.locator(cfg["phone"]).first
+                        if phone.count() == 0 or not phone.is_visible():
+                            continue
+                        resolved = getattr(page, "_resolved_form_configs", {})
+                        resolved[form_type] = dict(cfg)
+                        page._resolved_form_configs = resolved
+                        print(f"  [POPUP] active MTS dialog type='{form_type}' idx={dialog_index}")
+                        return form_type, dialog
+            except Exception:
+                pass
+
+        visible_candidates = []
         for popup_sel in POPUP_CONTAINER_SELECTORS:
             for form_type, cfg in form_types_to_check:
                 containers = page.locator(popup_sel)
@@ -2596,10 +2759,17 @@ def wait_for_popup_with_fields(page: Page, timeout_ms: int = 10_000,
                             continue
                         phone = container.locator(cfg["phone"]).first
                         if phone.count() > 0 and phone.is_visible(timeout=300):
-                            print(f"  [POPUP] sel='{popup_sel}' type='{form_type}'")
-                            return form_type, container
+                            visible_candidates.append((popup_sel, form_type, cfg, container, i))
                     except Exception:
                         pass
+
+        if visible_candidates:
+            popup_sel, form_type, cfg, container, index = visible_candidates[-1]
+            resolved = getattr(page, "_resolved_form_configs", {})
+            resolved[form_type] = dict(cfg)
+            page._resolved_form_configs = resolved
+            print(f"  [POPUP] active sel='{popup_sel}' type='{form_type}' idx={index}")
+            return form_type, container
 
         for form_type, cfg in form_types_to_check:
             phone_fields = page.locator(cfg["phone"])
@@ -2613,10 +2783,16 @@ def wait_for_popup_with_fields(page: Page, timeout_ms: int = 10_000,
                         "contains(@class,'modal') or contains(@id,'popup')]"
                     ).last
                     if parent.count() > 0 and parent.is_visible(timeout=300):
+                        resolved = getattr(page, "_resolved_form_configs", {})
+                        resolved[form_type] = dict(cfg)
+                        page._resolved_form_configs = resolved
                         print(f"  [POPUP] ancestor type='{form_type}'")
                         return form_type, parent
                     form_parent = phone.locator("xpath=ancestor::form").last
                     if form_parent.count() > 0 and form_parent.is_visible(timeout=300):
+                        resolved = getattr(page, "_resolved_form_configs", {})
+                        resolved[form_type] = dict(cfg)
+                        page._resolved_form_configs = resolved
                         print(f"  [POPUP] form-ancestor type='{form_type}'")
                         return form_type, form_parent
                 except Exception:
@@ -2662,17 +2838,18 @@ def resolve_checkaddress_container_after_click(page: Page, timeout_ms: int = 12_
         timeout_ms=timeout_ms,
         form_hint="checkaddress",
     )
-    if detected_form == "checkaddress" and popup_container is not None:
+    if detected_form in {"checkaddress", MTS_NEXT_FORM_TYPE} and popup_container is not None:
         return detected_form, popup_container
 
-    cfg = FORM_CONFIGS["checkaddress"]
+    cfg = form_config_for_page(page, "checkaddress")
     poll_ms = 250
     elapsed = 0
     while elapsed < 3_500:
         container = find_visible_form_container_by_phone(page, cfg)
         if container is not None:
             print("  [CHECKADDRESS] fallback: detected visible form container by phone field")
-            return "checkaddress", container
+            detected_type = MTS_NEXT_FORM_TYPE if getattr(page, "_use_mts_next_locators", False) else "checkaddress"
+            return detected_type, container
         page.wait_for_timeout(poll_ms)
         elapsed += poll_ms
     return detected_form, popup_container
@@ -2741,6 +2918,34 @@ def collect_popup_buttons(
                 print(f"  [COLLECT] #{len(result)} index={i} '{text}'")
             except Exception:
                 pass
+
+    if getattr(page, "_use_mts_next_locators", False):
+        next_form_openers = [
+            "[data-testid='mts-tariffs-address-button']",
+            "[data-testid='mts-floating-quick-connect']",
+            "[data-testid='mts-footer-address-check']",
+            "[data-testid='mts-promo-cta'][data-cta-kind='button']",
+            "[data-testid='mts-tariff-card-connect']",
+        ]
+        for selector in next_form_openers:
+            locs = page.locator(selector)
+            for idx in range(locs.count()):
+                item = locs.nth(idx)
+                try:
+                    if not item.is_visible() or not item.is_enabled():
+                        continue
+                    text = (item.inner_text() or selector).strip().lower()
+                    result.append({
+                        "index": -1,
+                        "text": text,
+                        "form_hint": MTS_NEXT_FORM_TYPE,
+                        "css": selector,
+                        "css_nth": idx,
+                        "trigger_kind": "mts_new_version",
+                    })
+                    print(f"  [COLLECT] '{text}' ({MTS_NEXT_FORM_TYPE}, {selector})")
+                except Exception:
+                    pass
 
     # По CSS-классам (profit, express-connection)
     for form_hint, css_class in POPUP_BUTTON_CLASSES.items():
@@ -2833,7 +3038,7 @@ def dismiss_profit_popup(page: Page):
     Не заполняет форму — просто закрывает. Безопасно вызывать в любой момент.
     """
     try:
-        phone = page.locator(FORM_CONFIGS["profit"]["phone"]).first
+        phone = page.locator(form_config_for_page(page, "profit")["phone"]).first
         if phone.count() == 0 or not phone.is_visible():
             return
         for close_sel in [
@@ -3486,6 +3691,11 @@ def process_all_popups(page: Page, base_url: str,
         if css:
             try:
                 css_btns = page.locator(css)
+                css_nth = entry.get("css_nth")
+                if isinstance(css_nth, int) and 0 <= css_nth < css_btns.count():
+                    candidate = css_btns.nth(css_nth)
+                    if candidate.count() > 0 and candidate.is_visible() and candidate.is_enabled():
+                        return candidate
                 for i in range(css_btns.count()):
                     candidate = css_btns.nth(i)
                     if candidate.count() > 0 and candidate.is_visible() and candidate.is_enabled():
@@ -3552,7 +3762,7 @@ def process_inline_connection_form(
     (без popup-триггера), например rtk-home.ru/.../podklyuchenie-interneta.
     """
     print("\n[INLINE-CONNECTION] Проверка inline-формы connection")
-    cfg = FORM_CONFIGS["connection"]
+    cfg = form_config_for_page(page, "connection")
     container = page.locator("section, form, div").filter(
         has=page.locator(cfg["phone"])
     ).first
@@ -3689,10 +3899,40 @@ def process_checkaddress_form(
     1) инлайн-форма на странице
     2) попап по кнопке .checkaddress_address_button
     """
-    cfg = FORM_CONFIGS["checkaddress"]
-    container = page.locator("section, form, div").filter(
-        has=page.locator(cfg["phone"])
-    ).first
+    checkaddress_form_type = (
+        MTS_NEXT_FORM_TYPE
+        if getattr(page, "_use_mts_next_locators", False)
+        else "checkaddress"
+    )
+    cfg = form_config_for_page(page, checkaddress_form_type)
+    container = None
+
+    if checkaddress_form_type == MTS_NEXT_FORM_TYPE:
+        for form_sel in (
+            "[data-form-placement='home-primary']",
+            "main [data-form-placement='home-primary']",
+        ):
+            candidates = page.locator(form_sel)
+            for index in range(candidates.count() - 1, -1, -1):
+                candidate = candidates.nth(index)
+                try:
+                    if (
+                        candidate.is_visible()
+                        and candidate.locator(cfg["phone"]).count() > 0
+                        and candidate.locator(cfg["street"]).count() > 0
+                    ):
+                        container = candidate
+                        print(f"  [FORM] Active MTS main container: {form_sel} idx={index}")
+                        break
+                except Exception:
+                    pass
+            if container is not None:
+                break
+
+    if container is None:
+        container = page.locator("section, form, div").filter(
+            has=page.locator(cfg["phone"])
+        ).first
 
     try:
         has_inline = container.count() > 0
@@ -3701,7 +3941,16 @@ def process_checkaddress_form(
 
     if not has_inline:
         print("  [CHECKADDRESS] Инлайн-форма не найдена, пробуем открыть попап по кнопке")
-        triggers = page.locator(POPUP_BUTTON_CLASSES["checkaddress"])
+        trigger_selectors = [POPUP_BUTTON_CLASSES["checkaddress"]]
+        if checkaddress_form_type == MTS_NEXT_FORM_TYPE:
+            trigger_selectors.extend([
+                "[data-testid='mts-tariffs-address-button']",
+                "[data-testid='mts-floating-quick-connect']",
+                "[data-testid='mts-footer-address-check']",
+                "[data-testid='mts-promo-cta'][data-cta-kind='button']",
+                "[data-testid='mts-tariff-card-connect']",
+            ])
+        triggers = page.locator(", ".join(trigger_selectors))
         detected_form = None
         popup_container = None
         last_click_error: Exception | None = None
@@ -3744,26 +3993,26 @@ def process_checkaddress_form(
                         page,
                         timeout_ms=12_000,
                     )
-                    if detected_form == "checkaddress" and popup_container is not None:
+                    if detected_form in {"checkaddress", MTS_NEXT_FORM_TYPE} and popup_container is not None:
                         break
-                if detected_form == "checkaddress" and popup_container is not None:
+                if detected_form in {"checkaddress", MTS_NEXT_FORM_TYPE} and popup_container is not None:
                     break
             except Exception as err:
                 last_click_error = err
                 continue
 
-        if detected_form != "checkaddress" or popup_container is None:
+        if detected_form not in {"checkaddress", MTS_NEXT_FORM_TYPE} or popup_container is None:
             reason = "форма checkaddress не найдена на странице"
             if last_click_error is not None:
                 reason = f"{reason} (последняя ошибка клика: {last_click_error})"
             return 0, 1, reason
         container = popup_container
 
-    filled = fill_form(page, container, "checkaddress")
+    filled = fill_form(page, container, checkaddress_form_type)
     if not filled:
         return 0, 1, "форма checkaddress не заполнена"
 
-    submit = find_submit(container, "checkaddress")
+    submit = find_submit(container, checkaddress_form_type)
     if not submit:
         return 0, 1, "кнопка отправки checkaddress не найдена"
 
@@ -3775,8 +4024,8 @@ def process_checkaddress_form(
     return_url_before_submit = page.url or base_url
     ok = submit_with_confirmation(
         page,
-        container,
-        "checkaddress",
+            container,
+            checkaddress_form_type,
         timeout_ms=SUBMIT_CONFIRM_TIMEOUT_MS,
         attempts=2,
     )
@@ -4077,6 +4326,7 @@ def run_site_scenario(page: Page, cfg: dict):
     sep            = "=" * 55
     site_label     = base_url.replace("https://", "").replace("http://", "").strip("/")
     city_name      = cfg.get("city_name")
+    page._expected_city_name = city_name
     city_base      = None
     city_biz       = None
     service_mode   = normalize_service_mode(cfg.get("_service_mode", SERVICE_MODE_ALL))
