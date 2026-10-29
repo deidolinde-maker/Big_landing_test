@@ -16,7 +16,7 @@ SITES = [
     },
     {
         "base_url": "https://mts-home-online.ru/",
-        "has_checkaddress": False,
+        "has_checkaddress": True,
         "has_business": True,
         "has_name_field": True,
         "cities": ["Москва"],

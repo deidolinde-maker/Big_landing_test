@@ -23,6 +23,7 @@ import requests
 import time
 import sys
 import json
+import re
 from urllib.parse import quote, urlsplit, urlunsplit
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
@@ -154,11 +155,113 @@ def _is_mts_runtime_url(url: str) -> bool:
     )
 
 
+def install_mts_console_listener(page: Page) -> None:
+    """Capture site_version emitted by the MTS debug build."""
+    if getattr(page, "_mts_console_listener_installed", False):
+        return
+
+    def find_version(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if str(key).strip().lower() == "site_version":
+                    return str(item).strip() if item is not None else None
+                nested = find_version(item)
+                if nested:
+                    return nested
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                nested = find_version(item)
+                if nested:
+                    return nested
+        elif isinstance(value, str) and "site_version" in value.lower():
+            try:
+                return find_version(json.loads(value))
+            except Exception:
+                match = re.search(
+                    r"[\"']site_version[\"']\s*[:=]\s*[\"']([^\"']+)",
+                    value,
+                    flags=re.IGNORECASE,
+                )
+                return match.group(1).strip() if match else None
+        return None
+
+    def capture(message):
+        try:
+            text = message.text or ""
+        except Exception:
+            return
+        version = None
+        for pattern in (
+            r"[\"']site_version[\"']\s*[:=]\s*[\"']([^\"']+)",
+            r"\bsite_version\b\s*[:=]\s*[\"']?([A-Za-z0-9_.-]+)",
+        ):
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if match:
+                version = match.group(1).strip()
+                break
+        if not version:
+            try:
+                for arg in message.args:
+                    try:
+                        version = find_version(arg.json_value())
+                    except Exception:
+                        continue
+                    if version:
+                        break
+            except Exception:
+                pass
+        if version:
+            previous = getattr(page, "_mts_console_site_version", None)
+            page._mts_console_site_version = version
+            if previous != version:
+                print(f"  [VERSION] Console site_version: {version}")
+
+    page.on("console", capture)
+    page._mts_console_listener_installed = True
+
+
+def _is_mts_home_online_root(url: str) -> bool:
+    parsed = urlsplit(url or "")
+    return (
+        (parsed.hostname or "").lower().rstrip(".") == MTS_HOME_ONLINE_HOST
+        and (parsed.path or "").rstrip("/") == ""
+    )
+
+
 def refresh_mts_home_gpon_version(page: Page, url: str) -> None:
-    """Refresh the MTS GPON locator mode after every navigation."""
+    """Refresh page-local MTS locator modes after every navigation."""
     parsed = urlsplit(url)
     host = (parsed.hostname or "").lower().rstrip(".")
     path = (parsed.path or "").rstrip("/")
+
+    if host == MTS_HOME_ONLINE_HOST and not path:
+        version = getattr(page, "_mts_console_site_version", None)
+        if version == MTS_ONLINE_NEW_SITE_VERSION:
+            page._mts_site_version = version
+            page._use_mts_online_locators = True
+            print(f"  [VERSION] MTS online site_version={version}: data-address-form")
+            return
+        if version == MTS_ONLINE_CLASSIC_SITE_VERSION:
+            page._mts_site_version = version
+            page._use_mts_online_locators = False
+            print(f"  [VERSION] MTS online site_version={version}: legacy CSS")
+            return
+        try:
+            dom_marker = page.locator(
+                "form[data-address-form] [data-street-input], "
+                "form[data-address-form] [data-house-input], "
+                "form[data-address-form] [data-lead-submit]"
+            ).count() > 0
+        except Exception:
+            dom_marker = False
+        page._mts_site_version = "dom_address_form" if dom_marker else None
+        page._use_mts_online_locators = dom_marker
+        print(
+            "  [VERSION] MTS online site_version не найден; "
+            f"DOM fallback: {'data-address-form' if dom_marker else 'legacy'}"
+        )
+        return
+
     if host != MTS_HOME_GPON_HOST or path:
         return
 
@@ -714,6 +817,19 @@ MTS_NEXT_CHECKADDRESS_CONFIG = {
     "no_house": False,
     "no_suggest": False,
 }
+MTS_ONLINE_FORM_TYPE = "mts_home_online_address"
+MTS_ONLINE_CHECKADDRESS_CONFIG = {
+    "root": "form[data-address-form][data-form-type='connection_address']",
+    "street": "[data-street-input]",
+    "house": "[data-house-input]",
+    "phone": "input[name='Phone']",
+    "submit": "[data-lead-submit]",
+    "city": "[data-city-input]",
+    "street_suggestions": "[data-street-results]",
+    "house_suggestions": "[data-house-results]",
+    "no_house": False,
+    "no_suggest": False,
+}
 MTS_NEXT_FORM_TYPE = "mts_address_search"
 MTS_NEXT_ADDRESS_FORM_TYPES = {
     "checkaddress",
@@ -726,6 +842,8 @@ MTS_NEXT_ADDRESS_FORM_TYPES = {
 def form_config_for_page(page: Page | None, form_type: str) -> dict:
     if form_type == MTS_NEXT_FORM_TYPE:
         return dict(MTS_NEXT_CHECKADDRESS_CONFIG)
+    if form_type == MTS_ONLINE_FORM_TYPE:
+        return dict(MTS_ONLINE_CHECKADDRESS_CONFIG)
 
     resolved_configs = getattr(page, "_resolved_form_configs", {}) if page is not None else {}
     resolved_cfg = resolved_configs.get(form_type)
@@ -764,6 +882,10 @@ SITE_UNAVAILABLE_THRESHOLD_MS = 60_000
 NAV_GOTO_TIMEOUT_MS = 20_000
 NAV_RETRIES = 3
 MTS_HOME_GPON_HOST = "mts-home-gpon.ru"
+MTS_HOME_ONLINE_HOST = "mts-home-online.ru"
+MTS_DEBUG_QUERY = "_ym_debug=1"
+MTS_ONLINE_NEW_SITE_VERSION = "wordpress_new"
+MTS_ONLINE_CLASSIC_SITE_VERSION = "wordpress_old"
 MTS_YANDEX_EVENTS_STORAGE_KEY = "landing-yandex-events:v1"
 SUBMIT_CONFIRM_TIMEOUT_MS = 25_000
 SUBMIT_CONFIRM_GRACE_MS = 2_000
@@ -811,6 +933,10 @@ MTS_INTERNET_SKIP_BUTTON_KEYWORDS = (
 )
 
 SUGGESTION_SELECTORS = [
+    "[data-street-results] [role='option']",
+    "[data-street-results] li",
+    "[data-house-results] [role='option']",
+    "[data-house-results] li",
     "[data-testid='mts-address-street-suggestion']",
     "[data-testid='mts-address-house-suggestion']",
     "[role='option']", "[role='listbox'] li",
@@ -1065,7 +1191,7 @@ def dismiss_region_popup(page: Page):
     Безопасно вызывать на любом сайте — если попапа нет, просто ничего не делает.
     """
     current_host = (urlsplit(page.url or "").hostname or "").lower().rstrip(".")
-    if current_host == MTS_HOME_GPON_HOST:
+    if current_host in {MTS_HOME_GPON_HOST, MTS_HOME_ONLINE_HOST}:
         for sel, label in (
             ("[data-testid='mts-city-selector-accept']", "MTS кнопка 'Да'"),
             ("#yesButton", "MTS #yesButton"),
@@ -1436,7 +1562,18 @@ def safe_goto(
 
     for attempt in range(1, retries + 1):
         try:
-            response = page.goto(url, wait_until="domcontentloaded", timeout=goto_timeout_ms)
+            navigation_url = url
+            if _is_mts_home_online_root(url):
+                install_mts_console_listener(page)
+                page._mts_console_site_version = None
+                parsed_url = urlsplit(url)
+                query = parsed_url.query
+                if MTS_DEBUG_QUERY not in query:
+                    query = f"{query}&{MTS_DEBUG_QUERY}=1" if query else f"{MTS_DEBUG_QUERY}=1"
+                navigation_url = urlunsplit(
+                    (parsed_url.scheme, parsed_url.netloc, parsed_url.path, query, parsed_url.fragment)
+                )
+            response = page.goto(navigation_url, wait_until="domcontentloaded", timeout=goto_timeout_ms)
             page.wait_for_timeout(500)
 
             status = None
@@ -1656,7 +1793,7 @@ def _is_form_city_change_button(locator) -> bool:
 
 def detect_visible_region_popup(page: Page) -> str | None:
     current_host = (urlsplit(page.url or "").hostname or "").lower().rstrip(".")
-    if current_host == MTS_HOME_GPON_HOST:
+    if current_host in {MTS_HOME_GPON_HOST, MTS_HOME_ONLINE_HOST}:
         for sel in (
             "[data-testid='mts-city-selector-accept']",
             "[data-testid='mts-city-selector-decline']",
@@ -1927,7 +2064,7 @@ def resolve_service_values_for_mode(
     mode = normalize_service_mode(service_mode)
 
     if mode == SERVICE_MODE_VARIANTS:
-        if form_type in ("profit", "business"):
+        if form_type in ("profit", "business", MTS_ONLINE_FORM_TYPE, MTS_NEXT_FORM_TYPE):
             print("  [FORM] VARIANTS: тип формы без Place — пропускаем")
             return []
         if detected_service_values:
@@ -1936,7 +2073,7 @@ def resolve_service_values_for_mode(
         print("  [FORM] VARIANTS: Place не найден — пропускаем")
         return []
 
-    if form_type in ("profit", "business"):
+    if form_type in ("profit", "business", MTS_ONLINE_FORM_TYPE, MTS_NEXT_FORM_TYPE):
         return [None]
 
     if not detected_service_values:
@@ -2159,7 +2296,7 @@ def _stabilize_form_before_retry(page: Page, container, form_type: str) -> str:
     except Exception:
         pass
 
-    cfg = FORM_CONFIGS.get(form_type, {})
+    cfg = form_config_for_page(page, form_type)
     phone_sel = cfg.get("phone")
     if phone_sel:
         phone = container.locator(phone_sel).first
@@ -2208,6 +2345,17 @@ def fill_form(page: Page, container, form_type: str,
     cfg        = form_config_for_page(page, form_type)
     no_house   = cfg.get("no_house", False)
     no_suggest = cfg.get("no_suggest", False)
+    print(f"  [FORM 1/8] Закрываем региональный попап ({form_type})")
+    confirm_mts_city_if_present(page)
+    print("  [FORM 2/8] Проверяем cookie-баннер")
+    accept_cookie_banner(page)
+    print("  [FORM 3/8] Ищем контейнер формы")
+    try:
+        if container.count() == 0 or not container.is_visible():
+            print("  [FORM] Контейнер формы не найден или невидим")
+            return False
+    except Exception:
+        return False
     street_local = container.locator(cfg["street"]).first
     if _is_connection_business_like_context(page, form_type):
         # On specific /business URLs connection trigger opens business-like form
@@ -2221,6 +2369,7 @@ def fill_form(page: Page, container, form_type: str,
             return False
 
     def fill_street_and_pick() -> bool:
+        print("  [FORM 4/8] Ищем поле улицы")
         street_value = _street_value_for_url(page)
         if street_local.count() == 0 or not street_local.is_visible():
             print(f"  [FORM] Address field not found ({cfg['street']})")
@@ -2238,8 +2387,9 @@ def fill_form(page: Page, container, form_type: str,
             print("  [FORM] Address entered (no suggestion)")
             return True
 
-        print(f"  [FORM] Street '{street_value}' entered, waiting suggestion...")
+        print(f"  [FORM 5/8] Вводим улицу: {street_value}")
         suggest_timeout = browser_timeout(page, SUGGEST_TIMEOUT_MS, FIREFOX_SUGGEST_TIMEOUT_MS)
+        print("  [FORM 6/8] Выбираем улицу из подсказки")
         choose_first_suggestion(
             page,
             timeout_ms=suggest_timeout,
@@ -2376,6 +2526,7 @@ def fill_form(page: Page, container, form_type: str,
             house_ready = False
 
             for house_attempt in range(1, 3):
+                print(f"  [FORM 7/8] Ищем поле дома (попытка {house_attempt}/2)")
                 house = container.locator(house_sel).first
                 if house.count() == 0 or not house.is_visible():
                     print(f"  [FORM] House field not found/visible ({house_sel}) | attempt {house_attempt}/2")
@@ -2447,6 +2598,7 @@ def fill_form(page: Page, container, form_type: str,
                             house.scroll_into_view_if_needed()
                             house.click(force=True)
                             house.fill("1")
+                            print("  [FORM 8/8] Вводим дом: 1")
                             print("  [FORM] House entered, waiting suggestion...")
                             house_suggest_picked = choose_first_suggestion(
                                 page,
@@ -2705,19 +2857,20 @@ def popup_form_types_for_page(page: Page, form_hint=None):
         return [("business", dict(FORM_CONFIGS["business"]))]
     if form_hint == MTS_NEXT_FORM_TYPE:
         candidates = [MTS_NEXT_FORM_TYPE, *old_types]
+    elif form_hint == MTS_ONLINE_FORM_TYPE:
+        candidates = [MTS_ONLINE_FORM_TYPE, *old_types, MTS_NEXT_FORM_TYPE]
     elif form_hint in FORM_CONFIGS:
-        candidates = [form_hint, MTS_NEXT_FORM_TYPE]
+        candidates = [form_hint, MTS_ONLINE_FORM_TYPE, MTS_NEXT_FORM_TYPE]
+    elif getattr(page, "_use_mts_online_locators", False):
+        candidates = [MTS_ONLINE_FORM_TYPE, *old_types, MTS_NEXT_FORM_TYPE]
     elif getattr(page, "_use_mts_next_locators", False):
         candidates = [MTS_NEXT_FORM_TYPE, *old_types]
     else:
         candidates = [*old_types, MTS_NEXT_FORM_TYPE]
     return [
-        (
-            name,
-            dict(MTS_NEXT_CHECKADDRESS_CONFIG)
-            if name == MTS_NEXT_FORM_TYPE
-            else dict(FORM_CONFIGS[name]),
-        )
+        (name, dict(MTS_NEXT_CHECKADDRESS_CONFIG) if name == MTS_NEXT_FORM_TYPE
+         else dict(MTS_ONLINE_CHECKADDRESS_CONFIG) if name == MTS_ONLINE_FORM_TYPE
+         else dict(FORM_CONFIGS[name]))
         for name in candidates
     ]
 
@@ -2729,6 +2882,26 @@ def wait_for_popup_with_fields(page: Page, timeout_ms: int = 10_000,
     elapsed = 0
 
     while elapsed < timeout_ms:
+        if getattr(page, "_use_mts_online_locators", False):
+            try:
+                modals = page.locator(
+                    ".Modal.AddressModal, .Modal.FloatingLeadModal, .Modal.LeadModal"
+                )
+                for modal_index in range(modals.count() - 1, -1, -1):
+                    modal = modals.nth(modal_index)
+                    if not modal.is_visible():
+                        continue
+                    phone = modal.locator(MTS_ONLINE_CHECKADDRESS_CONFIG["phone"]).first
+                    street = modal.locator(MTS_ONLINE_CHECKADDRESS_CONFIG["street"]).first
+                    if phone.is_visible() and street.is_visible():
+                        resolved = getattr(page, "_resolved_form_configs", {})
+                        resolved[MTS_ONLINE_FORM_TYPE] = dict(MTS_ONLINE_CHECKADDRESS_CONFIG)
+                        page._resolved_form_configs = resolved
+                        print(f"  [POPUP] active MTS online modal idx={modal_index}")
+                        return MTS_ONLINE_FORM_TYPE, modal
+            except Exception:
+                pass
+
         if getattr(page, "_use_mts_next_locators", False):
             try:
                 dialogs = page.get_by_role("dialog", name="Проверка адреса")
@@ -2838,17 +3011,22 @@ def resolve_checkaddress_container_after_click(page: Page, timeout_ms: int = 12_
         timeout_ms=timeout_ms,
         form_hint="checkaddress",
     )
-    if detected_form in {"checkaddress", MTS_NEXT_FORM_TYPE} and popup_container is not None:
+    if detected_form in {"checkaddress", MTS_ONLINE_FORM_TYPE, MTS_NEXT_FORM_TYPE} and popup_container is not None:
         return detected_form, popup_container
 
-    cfg = form_config_for_page(page, "checkaddress")
+    fallback_type = (
+        MTS_ONLINE_FORM_TYPE if getattr(page, "_use_mts_online_locators", False)
+        else MTS_NEXT_FORM_TYPE if getattr(page, "_use_mts_next_locators", False)
+        else "checkaddress"
+    )
+    cfg = form_config_for_page(page, fallback_type)
     poll_ms = 250
     elapsed = 0
     while elapsed < 3_500:
         container = find_visible_form_container_by_phone(page, cfg)
         if container is not None:
             print("  [CHECKADDRESS] fallback: detected visible form container by phone field")
-            detected_type = MTS_NEXT_FORM_TYPE if getattr(page, "_use_mts_next_locators", False) else "checkaddress"
+            detected_type = fallback_type
             return detected_type, container
         page.wait_for_timeout(poll_ms)
         elapsed += poll_ms
@@ -2946,6 +3124,27 @@ def collect_popup_buttons(
                     print(f"  [COLLECT] '{text}' ({MTS_NEXT_FORM_TYPE}, {selector})")
                 except Exception:
                     pass
+
+    if getattr(page, "_use_mts_online_locators", False):
+        selector = ".tariffs__address"
+        locs = page.locator(selector)
+        for idx in range(locs.count()):
+            item = locs.nth(idx)
+            try:
+                if not item.is_visible() or not item.is_enabled():
+                    continue
+                text = (item.inner_text() or selector).strip().lower()
+                result.append({
+                    "index": -1,
+                    "text": text,
+                    "form_hint": MTS_ONLINE_FORM_TYPE,
+                    "css": selector,
+                    "css_nth": idx,
+                    "trigger_kind": "mts_online_new_version",
+                })
+                print(f"  [COLLECT] '{text}' ({MTS_ONLINE_FORM_TYPE}, {selector})")
+            except Exception:
+                pass
 
     # По CSS-классам (profit, express-connection)
     for form_hint, css_class in POPUP_BUTTON_CLASSES.items():
@@ -3900,12 +4099,30 @@ def process_checkaddress_form(
     2) попап по кнопке .checkaddress_address_button
     """
     checkaddress_form_type = (
-        MTS_NEXT_FORM_TYPE
+        MTS_ONLINE_FORM_TYPE
+        if getattr(page, "_use_mts_online_locators", False)
+        else MTS_NEXT_FORM_TYPE
         if getattr(page, "_use_mts_next_locators", False)
         else "checkaddress"
     )
     cfg = form_config_for_page(page, checkaddress_form_type)
     container = None
+
+    if checkaddress_form_type == MTS_ONLINE_FORM_TYPE:
+        candidates = page.locator(cfg["root"])
+        for index in range(candidates.count() - 1, -1, -1):
+            candidate = candidates.nth(index)
+            try:
+                if (
+                    candidate.is_visible()
+                    and candidate.locator(cfg["phone"]).count() > 0
+                    and candidate.locator(cfg["street"]).count() > 0
+                ):
+                    container = candidate
+                    print(f"  [FORM] Active MTS online container: {cfg['root']} idx={index}")
+                    break
+            except Exception:
+                pass
 
     if checkaddress_form_type == MTS_NEXT_FORM_TYPE:
         for form_sel in (
@@ -3950,6 +4167,8 @@ def process_checkaddress_form(
                 "[data-testid='mts-promo-cta'][data-cta-kind='button']",
                 "[data-testid='mts-tariff-card-connect']",
             ])
+        elif checkaddress_form_type == MTS_ONLINE_FORM_TYPE:
+            trigger_selectors.append(".tariffs__address")
         triggers = page.locator(", ".join(trigger_selectors))
         detected_form = None
         popup_container = None
@@ -3993,15 +4212,15 @@ def process_checkaddress_form(
                         page,
                         timeout_ms=12_000,
                     )
-                    if detected_form in {"checkaddress", MTS_NEXT_FORM_TYPE} and popup_container is not None:
+                    if detected_form in {"checkaddress", MTS_ONLINE_FORM_TYPE, MTS_NEXT_FORM_TYPE} and popup_container is not None:
                         break
-                if detected_form in {"checkaddress", MTS_NEXT_FORM_TYPE} and popup_container is not None:
+                if detected_form in {"checkaddress", MTS_ONLINE_FORM_TYPE, MTS_NEXT_FORM_TYPE} and popup_container is not None:
                     break
             except Exception as err:
                 last_click_error = err
                 continue
 
-        if detected_form not in {"checkaddress", MTS_NEXT_FORM_TYPE} or popup_container is None:
+        if detected_form not in {"checkaddress", MTS_ONLINE_FORM_TYPE, MTS_NEXT_FORM_TYPE} or popup_container is None:
             reason = "форма checkaddress не найдена на странице"
             if last_click_error is not None:
                 reason = f"{reason} (последняя ошибка клика: {last_click_error})"
@@ -4073,6 +4292,10 @@ def run_city_scenario(page: Page, base_url: str, city_name: str) -> tuple[str | 
 
     # Все известные варианты кнопки открытия попапа города
     CITY_BUTTON_SELECTORS = [
+        "span.tariffs__city.city[role='button']",
+        "span.footer__city.city[role='button']",
+        ".tariffs__city.city",
+        ".footer__city.city",
         "xpath=(//span[@id='city'])[1]",
         "xpath=(//span[@id='city'])[2]",
         "xpath=(//span[@id='city'])[3]",
@@ -4153,6 +4376,7 @@ def run_city_scenario(page: Page, base_url: str, city_name: str) -> tuple[str | 
 
     # Все известные варианты поля поиска города
     CITY_INPUT_SELECTORS = [
+        "#region-select-input",
         "xpath=//input[@placeholder='Введите название города']",
         "xpath=//input[@id='city-input']",
         "xpath=//input[@placeholder='Поиск города']",
@@ -4212,6 +4436,7 @@ def run_city_scenario(page: Page, base_url: str, city_name: str) -> tuple[str | 
 
     # Все известные варианты списка городов
     CITY_LINK_SELECTORS = [
+        ".popup-select-region__item",
         "xpath=(//a[@class='region_item region_link'])",
         "xpath=//a[@class='region_item']",
         "xpath=//div[@class='city-coverage__capital']//a",
@@ -4322,6 +4547,7 @@ def run_site_scenario(page: Page, cfg: dict):
     """
     global SUPPRESS_TECH_ALERTS
     base_url       = cfg["base_url"]
+    install_mts_console_listener(page)
     has_name_field = cfg.get("has_name_field", False)
     sep            = "=" * 55
     site_label     = base_url.replace("https://", "").replace("http://", "").strip("/")
