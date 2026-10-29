@@ -2860,13 +2860,23 @@ def popup_form_types_for_page(page: Page, form_hint=None):
     elif form_hint == MTS_ONLINE_FORM_TYPE:
         candidates = [MTS_ONLINE_FORM_TYPE, *old_types, MTS_NEXT_FORM_TYPE]
     elif form_hint in FORM_CONFIGS:
-        candidates = [form_hint, MTS_ONLINE_FORM_TYPE, MTS_NEXT_FORM_TYPE]
+        # Новые MTS-конфиги добавляем только после явного определения
+        # соответствующей версии. Иначе legacy-домены вроде mts-home.online
+        # могут распознать обычный profit-popup как MTS online форму.
+        candidates = [form_hint]
+        if getattr(page, "_use_mts_online_locators", False):
+            candidates.append(MTS_ONLINE_FORM_TYPE)
+        if getattr(page, "_use_mts_next_locators", False):
+            candidates.append(MTS_NEXT_FORM_TYPE)
     elif getattr(page, "_use_mts_online_locators", False):
         candidates = [MTS_ONLINE_FORM_TYPE, *old_types, MTS_NEXT_FORM_TYPE]
     elif getattr(page, "_use_mts_next_locators", False):
         candidates = [MTS_NEXT_FORM_TYPE, *old_types]
     else:
-        candidates = [*old_types, MTS_NEXT_FORM_TYPE]
+        # Без подтверждённого version-marker используем только legacy-набор.
+        # Иначе новая GPON-конфигурация может случайно захватить форму на
+        # другом домене с похожим полем телефона.
+        candidates = [*old_types]
     return [
         (name, dict(MTS_NEXT_CHECKADDRESS_CONFIG) if name == MTS_NEXT_FORM_TYPE
          else dict(MTS_ONLINE_CHECKADDRESS_CONFIG) if name == MTS_ONLINE_FORM_TYPE
