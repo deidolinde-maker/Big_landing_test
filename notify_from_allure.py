@@ -403,6 +403,28 @@ def current_summary_slot(now: datetime | None = None) -> tuple[str, datetime]:
     return slot.strftime("%Y-%m-%d %H:%M"), slot
 
 
+def summary_reason(message: str) -> str:
+    """Return a short stable reason for the twice-daily report."""
+    text = normalize_text(message or "").lower()
+    if "popup_not_found" in text or "попап не появился" in text or "попап не найден" in text:
+        return "попап не найден"
+    if "timeout" in text or "timed out" in text or "превышен" in text:
+        return "таймаут"
+    if "form_not_filled" in text or "форма не заполнена" in text:
+        return "форма не заполнена"
+    if "no_confirmation" in text or "подтвержден" in text or "спасибо" in text:
+        return "нет подтверждения отправки"
+    if "outside of the viewport" in text or "вне viewport" in text:
+        return "элемент вне области просмотра"
+    if "disabled" in text or "недоступ" in text:
+        return "поле недоступно"
+    if "street" in text or "улиц" in text:
+        return "не выбран адрес"
+    if "house" in text or "дом" in text:
+        return "не выбран дом"
+    return normalize_text(message or "без деталей", max_len=100)
+
+
 def build_period_summary(runs: list[dict], slot: str) -> str:
     total_passed = sum(int(run.get("passed") or 0) for run in runs)
     all_failures = [item for run in runs for item in (run.get("failed_records") or [])]
@@ -422,9 +444,16 @@ def build_period_summary(runs: list[dict], slot: str) -> str:
     if all_failures:
         lines.extend(["", "Ошибки по сайтам и шагам:"])
         for (site, step), items in sorted(grouped.items(), key=lambda pair: len(pair[1]), reverse=True):
-            sample = normalize_text(items[0].get("message") or "без деталей", max_len=180)
-            lines.append(f"- {site} / {step}: {len(items)}")
-            lines.append(f"  Пример: {sample}")
+            reasons: dict[str, int] = {}
+            for item in items:
+                reason = summary_reason(item.get("message") or item.get("name") or "")
+                reasons[reason] = reasons.get(reason, 0) + 1
+            reason_text = ", ".join(
+                f"{reason} ({count})"
+                for reason, count in sorted(reasons.items(), key=lambda pair: pair[1], reverse=True)
+            )
+            lines.append(f"- {site} / {step}: {len(items)} случаев")
+            lines.append(f"  Причины: {reason_text}")
     else:
         lines.extend(["", "Ошибок за период не зафиксировано."])
 

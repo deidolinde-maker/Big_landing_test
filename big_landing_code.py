@@ -262,7 +262,7 @@ def refresh_mts_home_gpon_version(page: Page, url: str) -> None:
         )
         return
 
-    if host != MTS_HOME_GPON_HOST or path:
+    if host != MTS_HOME_GPON_HOST:
         return
 
     try:
@@ -2536,11 +2536,18 @@ def fill_form(page: Page, container, form_type: str,
                         house_enable_timeout = browser_timeout(
                             page, HOUSE_ENABLE_TIMEOUT_MS, FIREFOX_HOUSE_ENABLE_TIMEOUT_MS
                         )
-                        if _is_beeline_runtime_url(page.url or "") and form_type == "checkaddress":
+                        retry_street_commit = (
+                            _is_beeline_runtime_url(page.url or "") and form_type == "checkaddress"
+                        ) or (
+                            form_type == MTS_NEXT_FORM_TYPE
+                            and (urlsplit(page.url or "").hostname or "").lower().rstrip(".")
+                            == MTS_HOME_GPON_HOST
+                        )
+                        if retry_street_commit:
                             try:
                                 expect(house).to_be_enabled(timeout=house_enable_timeout)
                             except Exception:
-                                print("  [FORM] Beeline checkaddress: house stayed disabled, retrying street commit")
+                                print("  [FORM] House stayed disabled, retrying street commit")
                                 try:
                                     street_local.scroll_into_view_if_needed()
                                     street_local.click(force=True)
@@ -2548,7 +2555,7 @@ def fill_form(page: Page, container, form_type: str,
                                     page.keyboard.press("ArrowDown")
                                     page.wait_for_timeout(120)
                                     page.keyboard.press("Enter")
-                                    page.wait_for_timeout(250)
+                                    page.wait_for_timeout(300)
                                 except Exception:
                                     pass
                                 expect(
@@ -2935,13 +2942,19 @@ def wait_for_popup_with_fields(page: Page, timeout_ms: int = 10_000,
         for popup_sel in POPUP_CONTAINER_SELECTORS:
             for form_type, cfg in form_types_to_check:
                 containers = page.locator(popup_sel)
-                for i in range(containers.count()):
+                total = containers.count()
+                # Broad selectors can match hundreds of hidden nodes on pages
+                # with client-side templates. Scan the newest bounded slice;
+                # the active popup is normally appended last.
+                scan_limit = 80 if any(token in popup_sel for token in ("[class*", "[id*", "overlay")) else total
+                start = max(0, total - scan_limit)
+                for i in range(total - 1, start - 1, -1):
                     container = containers.nth(i)
                     try:
-                        if not container.is_visible(timeout=300):
+                        if not container.is_visible():
                             continue
                         phone = container.locator(cfg["phone"]).first
-                        if phone.count() > 0 and phone.is_visible(timeout=300):
+                        if phone.count() > 0 and phone.is_visible():
                             visible_candidates.append((popup_sel, form_type, cfg, container, i))
                     except Exception:
                         pass
